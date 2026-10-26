@@ -210,6 +210,14 @@ echo '[{"role":"user","content":"..."}]' | python3 -m tiberius.cli --db PATH ext
 
 DB path: `--db` > `$TIBERIUS_DB` > `~/.tiberius/memory.db`. All output is JSON.
 
+### For agents
+
+The tool descriptions say what each operation does;
+[skills/tiberius-usage/SKILL.md](skills/tiberius-usage/SKILL.md) says how to
+use them *well* — when to recall, what to store, and the feedback loop that
+keeps the store accurate. Install it by copying the file into your agent's
+skills directory (or referencing it from your agent instructions).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) — the one rule that matters: retrieval
