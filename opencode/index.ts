@@ -16,7 +16,8 @@
  *   injectTop   facts injected into the system prompt at session start (default 4)
  *
  * What it does:
- *   - tools: memory_search / memory_probe / memory_add (agent-driven recall + writes)
+ *   - tools: memory_search / memory_probe / memory_related / memory_reason / memory_add / memory_feedback
+ *     (same operation surface as the Hermes provider — see skills/tiberius-usage/SKILL.md)
  *   - context hook: first model call per session pushes top relevant facts into the system prompt
  *   - event: on session.execution.succeeded, regex-extracts statements from user messages
  *
@@ -82,6 +83,34 @@ export default Plugin.define({
         execute: async (input: any) => {
           const r = await runEngine(engine, baseArgs, ["probe", String(input.entity)], undefined, env);
           return { content: JSON.stringify((r?.results ?? []).map((f) => ({ id: f.fact_id, content: f.content, category: f.category }))) };
+        },
+      });
+      e.add({
+        name: "memory_related",
+        description: "One hop out: facts that share entities with the given entity (what is connected to it).",
+        input: { type: "object", properties: { entity: { type: "string" } }, required: ["entity"] },
+        execute: async (input: any) => {
+          const r = await runEngine(engine, baseArgs, ["related", String(input.entity)], undefined, env);
+          return { content: JSON.stringify((r?.results ?? []).map((f) => ({ id: f.fact_id, content: f.content, category: f.category }))) };
+        },
+      });
+      e.add({
+        name: "memory_reason",
+        description: "Compositional recall: facts linked to ALL of the given entities. Use for questions that span two or more.",
+        input: { type: "object", properties: { entities: { type: "array", items: { type: "string" }, description: "Entity names the fact must relate to all of" }, top: { type: "integer", description: "Max results (default 5)" } }, required: ["entities"] },
+        execute: async (input: any) => {
+          const ents = (input.entities as string[]).map(String);
+          const r = await runEngine(engine, baseArgs, ["reason", ...ents, "--top", String(input.top ?? 5)], undefined, env);
+          return { content: JSON.stringify((r?.results ?? []).map((f) => ({ id: f.fact_id, content: f.content, category: f.category, trust: f.trust_score }))) };
+        },
+      });
+      e.add({
+        name: "memory_feedback",
+        description: "Rate a recalled fact after using it: helpful if it was accurate, unhelpful if outdated. Trains trust scores — call this after acting on a fact.",
+        input: { type: "object", properties: { fact_id: { type: "integer", description: "The id returned by a recall tool" }, rating: { type: "string", enum: ["helpful", "unhelpful"] } }, required: ["fact_id", "rating"] },
+        execute: async (input: any) => {
+          const r = await runEngine(engine, baseArgs, ["feedback", String(input.fact_id), String(input.rating)], undefined, env);
+          return { content: JSON.stringify(r ?? {}) };
         },
       });
       e.add({
