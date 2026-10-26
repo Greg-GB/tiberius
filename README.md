@@ -104,7 +104,10 @@ nothing to install or provision. Where it lives:
 | OpenCode | `~/.tiberius/memory.db` | `options.db` in `opencode.json` |
 
 To move your memory, move the file. To inspect it, use any SQL tool — no
-`sqlite3` CLI needed; Python's stdlib (a requirement anyway) does it:
+`sqlite3` CLI needed; Python's stdlib (a requirement anyway) does it.
+Node.js users: the file is plain SQLite in WAL mode — open it directly
+(e.g. with `better-sqlite3`, read-only) for standard SQL and FTS5 queries;
+full retrieval quality (HRR reranking) lives in the Python CLI.
 
 ```bash
 python3 -c "
