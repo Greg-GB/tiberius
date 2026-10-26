@@ -19,9 +19,8 @@ Reportable issues, in priority order:
 
 ## How to report
 
-Open a GitHub issue with a `[security]` label, or email
-[REDACTED]. The project is small and solo-maintained: expect a
-fast triage, not a 90-day SLA.
+Open a GitHub issue with a `[security]` label. The project is small and
+solo-maintained: expect a fast triage, not a 90-day SLA.
 
 ## Out of scope
 
