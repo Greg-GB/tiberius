@@ -27,6 +27,33 @@ in-process under Hermes, and over a local CLI under OpenCode (and any other harn
   entities (see [What's changed](#whats-changed-vs-upstream)); that fix plus a
   golden-query eval gate is the reason the fork exists.
 
+## How it works
+
+Two paths over one local SQLite file: the **write path** extracts statements
+and named entities from session content into the store; the **read path**
+composes results in the SQL entity graph (which facts connect which
+entities) and ranks within that set with HRR phase-vector similarity when
+NumPy is available — without it, FTS5 + keyword scoring only.
+
+```mermaid
+flowchart LR
+    subgraph Harness
+        H["Hermes (in-process) / OpenCode (native plugin) / anything else (local CLI)"]
+    end
+    subgraph Tiberius["tiberius — local process, no network"]
+        E["extract<br/>regex statements + named entities"]
+        S[("SQLite file<br/>facts · FTS5 · entity graph · trust scores")]
+        R["retrieval<br/>search / probe / related / reason"]
+    end
+    H -- "write: session content" --> E
+    E --> S
+    H -- "read: queries" --> R
+    R -- "compose in entity graph,<br/>rank within set with HRR" --> S
+    S --> R
+```
+
+Files:
+
 - `store.py` — fact store (SQLite + FTS5), entity extraction, regex statement extraction
 - `retrieval.py` — search / probe / related / reason (SQL entity graph composes, HRR ranks within set)
 - `holographic.py` — HRR phase-vector algebra (numpy optional; without it, keyword mode)
