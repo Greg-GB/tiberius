@@ -55,6 +55,10 @@ that pattern so authorship stays legible.
 
 - `main` is the trunk; short-lived feature branches per PR. No long-lived
   dev branch — this is a solo-maintained repo, not a release train.
+- `main` is protected by the `protect-main` ruleset: changes land via PR
+  with a green `tests` check. (Note: on a private repo of a personal
+  account GitHub stores but does not enforce rulesets — the policy is
+  binding discipline until the repo moves to a Team plan or an org.)
 - Releases are `vX.Y.Z` tags cut from `main` (semver: fix = patch, new
   command/adapter = minor, DB schema change = major). Pushing the tag
   auto-publishes the GitHub Release with commit-generated notes
