@@ -56,9 +56,10 @@ that pattern so authorship stays legible.
 - `main` is the trunk; short-lived feature branches per PR. No long-lived
   dev branch — this is a solo-maintained repo, not a release train.
 - Releases are `vX.Y.Z` tags cut from `main` (semver: fix = patch, new
-  command/adapter = minor, DB schema change = major), each published as a
-  GitHub Release with notes. Release notes act as the changelog — there is
-  no separate CHANGELOG file.
+  command/adapter = minor, DB schema change = major). Pushing the tag
+  auto-publishes the GitHub Release with commit-generated notes
+  (`.github/workflows/release.yml`) — no UI clicks. Release notes act as
+  the changelog; there is no separate CHANGELOG file.
 - Bump the version in **all three** places together at release time:
   `pyproject.toml`, `plugin.yaml`, `opencode/package.json`.
 
