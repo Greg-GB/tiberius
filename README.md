@@ -36,19 +36,26 @@ entities) and ranks within that set with HRR phase-vector similarity when
 NumPy is available — without it, FTS5 + keyword scoring only.
 
 ```mermaid
-flowchart LR
-    subgraph Harness
-        H["Hermes (in-process) / OpenCode (native plugin) / anything else (local CLI)"]
+flowchart TB
+    subgraph H["Harnesses — each machine/container runs its own local copy"]
+        HM["Hermes"]
+        OC["OpenCode"]
+        OT["anything else"]
     end
-    subgraph Tiberius["tiberius — local process, no network"]
-        E["extract<br/>regex statements + named entities"]
-        S[("SQLite file<br/>facts · FTS5 · entity graph · trust scores")]
-        R["retrieval<br/>search / probe / related / reason"]
+    A["adapter — in-process plugin (Hermes) or local JSON CLI (all others)"]
+    subgraph T["tiberius core — Python, no network"]
+        E["extract: regex statements + named entities"]
+        R["retrieval: search · probe · related · reason"]
+        S[("one SQLite file<br/>facts · FTS5 · entity graph · trust")]
     end
-    H -- "write: session content" --> E
+    HM --> A
+    OC --> A
+    OT --> A
+    A -- "write" --> E
+    A -- "read" --> R
+    A -. "feedback: helpful / unhelpful" .-> S
     E --> S
-    H -- "read: queries" --> R
-    R -- "compose in entity graph,<br/>rank within set with HRR" --> S
+    R -- "compose in entity graph, rank within set with HRR" --> S
     S --> R
 ```
 
