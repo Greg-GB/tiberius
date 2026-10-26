@@ -12,7 +12,9 @@
  * Options:
  *   db        SQLite path (default ~/.tiberius/memory.db inside the container)
  *   engine    argv for the engine (default ["python3", "-m", "tiberius.cli"])
- *   pythonpath  PYTHONPATH for the engine (default: repo parent, derived from this file)
+ *   pythonpath  PYTHONPATH for the engine (default: none — the engine inherits
+ *               the container's PYTHONPATH; set it to the repo parent so
+ *               `python3 -m tiberius.cli` resolves)
  *   injectTop   facts injected into the system prompt at session start (default 4)
  *
  * What it does:
@@ -52,7 +54,10 @@ function runEngine(engine: string[], baseArgs: string[], args: string[], input?:
 function messageText(m: unknown): string {
   const msg = m as any;
   if (typeof msg?.text === "string") return msg.text;
-  if (Array.isArray(msg?.parts)) return msg.parts.filter((p: any) => p?.type === "text").map((p: any) => p.text).join(" ");
+  // V2 context hooks deliver provider-shaped messages: { role, content: [{ type: "text", text }] }
+  // (ctx.session.context() uses { type, text } — both handled).
+  const parts = Array.isArray(msg?.parts) ? msg.parts : Array.isArray(msg?.content) ? msg.content : undefined;
+  if (Array.isArray(parts)) return parts.filter((p: any) => p?.type === "text").map((p: any) => p.text ?? "").join(" ");
   return "";
 }
 
@@ -128,19 +133,29 @@ export default Plugin.define({
     });
 
     // --- context injection: top relevant facts once per session --------------
-    ctx.session.hook("context", (event) => {
+    // Verified against live OpenCode 2.0.28 (2026-10): event.messages carries
+    // provider-shaped messages ({ role, content: [{ type: "text", text }] }),
+    // and event.system is snapshotted when the hook's promise settles — the
+    // search must be AWAITED, a fire-and-forget .then() lands after dispatch.
+    // Cost: ~one engine start (100-300ms locally) on the first model call per
+    // session. Errors stay swallowed: memory must never break model dispatch.
+    ctx.session.hook("context", async (event) => {
       if (injected.has(event.sessionID)) return;
-      const lastUser = [...event.messages].reverse().map(messageText).filter(Boolean).pop();
+      const lastUser = [...event.messages]
+        .reverse()
+        .filter((m: any) => (m?.role ?? m?.type) === "user")
+        .map(messageText)
+        .filter(Boolean)
+        .pop();
       if (!lastUser) return;
       injected.add(event.sessionID);
-      runEngine(engine, baseArgs, ["search", lastUser.slice(0, 200), "--top", String(opts.injectTop ?? 4)], undefined, env)
-        .then((r) => {
-          const facts = (r?.results ?? []).map((f) => `- [${f.fact_id}] ${f.content}`);
-          if (facts.length) {
-            event.system.push({ type: "text", text: `Relevant stored memory (search with the memory_search tool for more):\n${facts.join("\n")}` });
-          }
-        })
-        .catch(() => {}); // memory must never block or break model dispatch
+      try {
+        const r = await runEngine(engine, baseArgs, ["search", lastUser.slice(0, 200), "--top", String(opts.injectTop ?? 4)], undefined, env);
+        const facts = (r?.results ?? []).map((f) => `- [${f.fact_id}] ${f.content}`);
+        if (facts.length) {
+          event.system.push({ type: "text", text: `Relevant stored memory (search with the memory_search tool for more):\n${facts.join("\n")}` });
+        }
+      } catch { /* memory must never break model dispatch */ }
     });
 
     // --- session end: regex-extract statements from user messages ------------
@@ -150,7 +165,9 @@ export default Plugin.define({
       for await (const ev of events as AsyncIterable<any>) {
         const type: string = ev?.type ?? ev?.properties?.type ?? "";
         if (type !== "session.execution.succeeded" && type !== "session.execution.interrupted") continue;
-        const sessionID: string | undefined = ev?.properties?.sessionID ?? ev?.sessionID;
+        // V2 events wrap the payload in `data` (verified against live
+        // OpenCode 2.0.28): { id, created, type, durable, data: { sessionID } }.
+        const sessionID: string | undefined = ev?.data?.sessionID ?? ev?.properties?.sessionID ?? ev?.sessionID;
         if (!sessionID) continue;
         try {
           const raw: any[] = await ctx.session.context({ sessionID });

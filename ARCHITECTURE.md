@@ -220,21 +220,38 @@ reason/add/feedback/extract. Contract: **JSON on stdout, exit 0**; errors
 tracebacks (callers parse stdout as JSON unconditionally).
 
 **OpenCode (`opencode/index.ts`).** Native V2 plugin; every operation shells
-out to `cli.py` (the core never runs inside the node process):
+out to `cli.py` (the core never runs inside the node process).
+**Runtime-verified against live OpenCode 2.0.28 (2026-10-26)** — all six
+tools, context injection, and event-driven extraction observed working
+end-to-end. Verified payload shapes (these were the untested assumptions):
 
 - 6 tools mirroring the Hermes surface: `memory_search` / `memory_probe` /
   `memory_related` / `memory_reason` / `memory_add` / `memory_feedback`.
-- `context` hook: on the **first** model call per session (tracked in
-  `sessionStarted`), searches recent session text and pushes top facts into
-  the system prompt. One-shot per session; subsequent turns rely on tools.
-- `event` hook: on `session.execution.succeeded`, extracts from user
-  messages of that session (same `extract_statements` via the CLI
-  `extract` command).
+- `context` hook: on the **first** model call per session (tracked in an
+  `injected` set), searches the last user message text and pushes top facts
+  into the system prompt. One-shot per session; subsequent turns rely on
+  tools. Two live-verified constraints:
+  - `event.messages` is **provider-shaped**: `{ id, role, content:
+    [{ type: "text", text }], metadata }` — *not* the API's `{ type, text }`
+    shape that `ctx.session.context()` returns. Filter `role === "user"`,
+    else the last assistant/tool message wins.
+  - `event.system` is snapshotted when the hook's promise settles, so the
+    search must be **awaited** inside the hook; fire-and-forget lands after
+    dispatch (~130ms for a local Python start) and silently injects nothing.
+- `event` hook: on `session.execution.succeeded` (name confirmed), the
+  session id is at **`event.data.sessionID`** — the event envelope is
+  `{ id, created, type, durable, data }` (there is no `properties` key).
+  Extraction reads that session's user messages via
+  `ctx.session.context({ sessionID })`, which *does* return the API shape
+  (`{ id, type, text, ... }`), hence the `m.type === "user"` filter.
 - `runEngine` swallows engine failures (logs a warning, returns an empty
   result) — a memory outage must never break the session; but `--db` is
   always passed first so a DB error can't be misread as a positional query.
-- Config: `opencode.json` `plugin.tiberius` — `{ enabled, db_path,
-  inject_top, python, repo }` (all optional; defaults match the CLI).
+- Config: `opencode.json` `plugins` entry — `{ "package":
+  "file:///…/opencode", "options": { "db", "engine", "pythonpath",
+  "injectTop" } }` (all optional; defaults match the CLI). Local plugin
+  directories under `~/.config/opencode/plugins/` are auto-discovered and
+  hot-reloaded on file change.
 
 ## Tests and eval
 
@@ -284,10 +301,15 @@ release workflow publishes on `vX.Y.Z` tags.
 9. **The gateway loads the install copy** (`plugins/tiberius`), not the git
    repo. After pushing, re-sync it; the running gateway needs a restart to
    pick up code changes.
-10. **The OpenCode plugin is untested at runtime** beyond typecheck + CLI
-    smoke. The event payload field names (`execution.sessionID`,
-    `execution.messages`) were not confirmed against a live OpenCode —
-    verify on first real deployment.
+10. **The OpenCode plugin is runtime-verified on OpenCode 2.0.28**
+    (2026-10-26): all six tools, context injection, and event-driven
+    extraction were observed working end-to-end; the verified payload
+    shapes are documented in the adapter section above. The first
+    deployment attempt shipped three silent failures (wrong `messages`
+    field names, wrong event payload key, un-awaited hook) — if a new
+    OpenCode release changes the `event.data` envelope or the hook
+    `messages` shape, re-verify against a live instance before relying
+    on it.
 
 ## Known gaps (deliberate, with ceilings)
 
