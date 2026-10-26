@@ -74,8 +74,18 @@ Config in `config.yaml` under `plugins.tiberius`:
 | `default_trust` | `0.5` | Default trust score for new facts |
 | `hrr_dim` | `1024` | HRR vector dimensions |
 
-The store is a plain SQLite file — your memory is inspectable with any SQL
-tool. No `sqlite3` CLI needed; Python's stdlib (a requirement anyway) does it:
+## Your data
+
+The store is a single SQLite file, created automatically on first use —
+nothing to install or provision. Where it lives:
+
+| Harness | Default location | Override |
+|---------|------------------|----------|
+| Hermes | `$HERMES_HOME/tiberius_store.db` | `plugins.tiberius.db_path` in `config.yaml` |
+| OpenCode | `~/.tiberius/memory.db` | `options.db` in `opencode.json` |
+
+To move your memory, move the file. To inspect it, use any SQL tool — no
+`sqlite3` CLI needed; Python's stdlib (a requirement anyway) does it:
 
 ```bash
 python3 -c "
