@@ -146,7 +146,8 @@ class TiberiusMemoryProvider(MemoryProvider):
         if not self._store:
             return ""
         try:
-            total = self._store._conn.execute("SELECT COUNT(*) FROM facts").fetchone()[0]
+            with self._store._lock:  # shared-connection rule: no connection access without the store lock
+                total = self._store._conn.execute("SELECT COUNT(*) FROM facts").fetchone()[0]
         except Exception:
             total = 0
         body = ("Active. Empty fact store — proactively add facts the user would expect you to remember.\n"

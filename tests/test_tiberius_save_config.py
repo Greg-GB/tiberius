@@ -50,3 +50,25 @@ def test_load_plugin_config_warns_and_returns_defaults_on_failure(monkeypatch, c
     with caplog.at_level(logging.WARNING):
         assert _load_plugin_config() == {}
     assert any("tiberius plugin config load failed" in rec.message for rec in caplog.records)
+
+
+def test_system_prompt_block_reads_count_under_store_lock():
+    """Shared-connection rule: every connection access holds the store lock (the retriever methods all do;
+    an unlocked COUNT here could interleave with a writer on the same sqlite3 connection)."""
+    p = TiberiusMemoryProvider(config={})
+    p.initialize(session_id="test")
+    try:
+        lock, real = p._store._lock, p._store._conn
+
+        class _GuardedConn:  # sqlite3.Connection attrs are read-only; proxy instead of monkeypatch
+            def execute(self, *a, **k):
+                assert lock._is_owned(), "connection accessed without holding the store lock"
+                return real.execute(*a, **k)
+
+            def __getattr__(self, name):
+                return getattr(real, name)
+
+        p._store._conn = _GuardedConn()
+        assert "# Tiberius Memory" in p.system_prompt_block()
+    finally:
+        p.shutdown()
