@@ -74,6 +74,13 @@ Config in `config.yaml` under `plugins.tiberius`:
 | `default_trust` | `0.5` | Default trust score for new facts |
 | `hrr_dim` | `1024` | HRR vector dimensions |
 
+The store is a plain SQLite file — your memory is readable with any SQL tool,
+no black box:
+
+```bash
+sqlite3 ~/.hermes/tiberius_store.db "SELECT fact_id, content, trust_score FROM facts ORDER BY fact_id DESC LIMIT 10;"
+```
+
 ## OpenCode (native V2 plugin)
 
 In the OpenCode container (or baked into its image):
