@@ -1,0 +1,17 @@
+[
+  {"content": "The API gateway runs on port 8100 and fronts all service traffic."},
+  {"content": "The billing service listens on port 8101 and writes invoices to the ledger database."},
+  {"content": "The analytics worker runs nightly at 02:00 and posts results to the metrics database."},
+  {"content": "Service dashboards live in /srv/acme/dashboards and are served on port 8120."},
+  {"content": "The primary database is PostgreSQL 16 on port 5433 in the database container."},
+  {"content": "Alice owns the search team and reviews all retrieval changes."},
+  {"content": "Bob owns infrastructure and manages the Docker hosts."},
+  {"content": "The search index is rebuilt daily and takes about twelve minutes."},
+  {"content": "The staging environment mirrors production but uses a separate database."},
+  {"content": "The metrics database uses ClickHouse on port 8124."},
+  {"content": "API keys are rotated every ninety days per the security policy."},
+  {"content": "The deploy pipeline runs on Docker and takes about eight minutes."},
+  {"content": "Query p95 latency on the search service is forty milliseconds."},
+  {"content": "Alice prefers concise, direct answers in code reviews."},
+  {"content": "The benchmark model endpoint is the local inference host on port 9100."}
+]

@@ -1,0 +1,25 @@
+name: Feature / improvement
+description: A new adapter, a retrieval improvement, or a quality gate.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What
+      description: The change you want, in one or two sentences.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: The use case or the failing query. If it's retrieval-related, a golden query you'd add to eval/golden.json is the strongest possible spec.
+    validations:
+      required: true
+  - type: textarea
+    id: sketch
+    attributes:
+      label: Sketch (optional)
+      description: Where you'd put it — core vs adapter — and roughly how.
+    validations:
+      required: false
