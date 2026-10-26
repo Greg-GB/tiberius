@@ -13,6 +13,20 @@ Tiberius is a fork of [hermes-plugin-holographic](https://github.com/NousResearc
 in-process under Hermes, and over a local CLI under OpenCode (and any other harness). See
 [What's changed](#whats-changed-vs-upstream).
 
+## Why this exists
+
+- **Completely local.** Everything lives in one SQLite file on your machine. No network calls,
+  no cloud, no API keys, no telemetry — your memory never leaves the box.
+- **Free.** MIT-licensed, stdlib-only core (NumPy optional), nothing to bill per token or
+  per seat.
+- **Multiple harnesses, one memory model.** A single harness-agnostic core with one thin
+  adapter per harness (Hermes in-process, OpenCode native plugin, anything else over a local
+  CLI). Each harness keeps its own DB file — there is no central memory server to point
+  containers at.
+- **A real retrieval bug fixed.** The upstream HRR algebra could not compose queries across
+  entities (see [What's changed](#whats-changed-vs-upstream)); that fix plus a
+  golden-query eval gate is the reason the fork exists.
+
 - `store.py` — fact store (SQLite + FTS5), entity extraction, regex statement extraction
 - `retrieval.py` — search / probe / related / reason (SQL entity graph composes, HRR ranks within set)
 - `holographic.py` — HRR phase-vector algebra (numpy optional; without it, keyword mode)
@@ -123,7 +137,7 @@ for r in sqlite3.connect('tiberius_store.db').execute(
 In the OpenCode container (or baked into its image):
 
 ```bash
-git clone <this-repo> /opt/tiberius
+git clone https://github.com/Greg-GB/tiberius /opt/tiberius
 pip install numpy                # optional: HRR reranking
 ```
 
