@@ -74,11 +74,16 @@ Config in `config.yaml` under `plugins.tiberius`:
 | `default_trust` | `0.5` | Default trust score for new facts |
 | `hrr_dim` | `1024` | HRR vector dimensions |
 
-The store is a plain SQLite file — your memory is readable with any SQL tool,
-no black box:
+The store is a plain SQLite file — your memory is inspectable with any SQL
+tool. No `sqlite3` CLI needed; Python's stdlib (a requirement anyway) does it:
 
 ```bash
-sqlite3 ~/.hermes/tiberius_store.db "SELECT fact_id, content, trust_score FROM facts ORDER BY fact_id DESC LIMIT 10;"
+python3 -c "
+import sqlite3
+for r in sqlite3.connect('tiberius_store.db').execute(
+        'SELECT fact_id, content, trust_score FROM facts ORDER BY fact_id DESC LIMIT 10'):
+    print(r)
+"
 ```
 
 ## OpenCode (native V2 plugin)
