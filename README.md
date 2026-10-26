@@ -232,3 +232,7 @@ quality is gated by the golden eval: `python eval/run_eval.py` runs the committe
 synthetic fixture (fixture baseline recall@1 18/18, recall@3 18/18); pass a DB path to
 eval against your own live store: `python eval/run_eval.py /path/to/your.db`. CI runs
 the core suite + fixture eval on every push.
+
+Deep-dive for anyone changing the code — data model, HRR algebra (and the bundle
+rule), retrieval flows, concurrency rules, and the pitfall list:
+[ARCHITECTURE.md](ARCHITECTURE.md).

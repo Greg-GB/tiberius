@@ -1,7 +1,8 @@
 # Agent instructions
 
 You are working on Tiberius, a local SQLite memory engine. Read `CONTRIBUTING.md`
-first. The invariants that actually matter:
+first, then `ARCHITECTURE.md` (how each module works and the invariants behind
+the rules below). The invariants that actually matter:
 
 1. **Golden eval is the gate.** Any change to `store.py`, `retrieval.py`, or
    `holographic.py` must run `python eval/run_eval.py` before and after and
