@@ -36,7 +36,7 @@ entities) and ranks within that set with HRR phase-vector similarity when
 NumPy is available — without it, FTS5 + keyword scoring only.
 
 ```mermaid
-flowchart TB
+flowchart LR
     subgraph H["Harnesses — each machine/container runs its own local copy"]
         HM["Hermes"]
         OC["OpenCode"]
