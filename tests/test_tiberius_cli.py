@@ -33,3 +33,13 @@ def test_cli_probe_and_extract(tmp_path, capsys, monkeypatch):
         [{"role": "user", "content": "I prefer concise direct answers and the project uses Fastify with SQLite"}])))
     out = _run(capsys, "--db", db, "extract")
     assert out["added"] == 2  # one user_pref statement + one project statement
+
+
+def test_cli_feedback_unknown_fact_id_is_json_error(tmp_path, capsys):
+    db = str(tmp_path / "m.db")
+    _run(capsys, "--db", db, "add", "The deploy pipeline uses Docker on the build host.")
+
+    rc = cli.main(["--db", db, "feedback", "999", "helpful"])
+
+    assert rc == 1  # JSON error on stdout, exit 1 — not a traceback (the CLI contract)
+    assert "error" in json.loads(capsys.readouterr().out.strip())
