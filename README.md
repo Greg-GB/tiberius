@@ -43,8 +43,26 @@ entity composition still works via SQL, HRR reranking off).
 
 ## Hermes
 
+Hermes discovers plugins by scanning `$HERMES_HOME/plugins/` (default `~/.hermes/plugins/`)
+for a directory with a `plugin.yaml`. `name: tiberius` in that file is the identifier;
+`provider.py` implements the `MemoryProvider` contract, which is what `hermes memory
+setup` lists.
+
 ```bash
-hermes memory setup    # select "tiberius" + "tiberius"
+git clone https://github.com/Greg-GB/tiberius ~/.hermes/plugins/tiberius
+```
+
+Enable it in `config.yaml`:
+
+```yaml
+plugins:
+  enabled: [tiberius]
+```
+
+Then pick it as your memory provider:
+
+```bash
+hermes memory setup    # select "tiberius"
 ```
 
 Config in `config.yaml` under `plugins.tiberius`:
