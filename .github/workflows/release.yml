@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: softprops/action-gh-release@v2
         with:
