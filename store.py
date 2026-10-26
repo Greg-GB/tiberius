@@ -195,11 +195,17 @@ class MemoryStore:
                     tags: str | None = None, category: str | None = None) -> bool:
         """Partially update a fact (trust clamped to [0, 1]). Returns True if the row existed."""
         with self._lock:
+            if content is not None:
+                # Same empty guard as add_fact: an empty row would merge into any other empty row
+                # under UNIQUE(content), and the second such update would raise IntegrityError.
+                content = content.strip()
+                if not content:
+                    raise ValueError("content must not be empty")
             row = self._one("SELECT fact_id, trust_score FROM facts WHERE fact_id = ?", (fact_id,))
             if row is None:
                 return False
             changes = {col: val for col, val in {
-                "content": content.strip() if content is not None else None, "tags": tags, "category": category,
+                "content": content, "tags": tags, "category": category,
                 "trust_score": _clamp_trust(row["trust_score"] + trust_delta) if trust_delta is not None else None,
             }.items() if val is not None}
             assignments = ", ".join(["updated_at = CURRENT_TIMESTAMP"] + [f"{col} = ?" for col in changes])

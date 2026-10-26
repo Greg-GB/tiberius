@@ -229,3 +229,25 @@ def test_backfill_computes_vectors_for_null_rows(tmp_path, db_path):
     reopened = MemoryStore(db_path, hrr_dim=64)
     assert reopened._one("SELECT hrr_vector FROM facts WHERE fact_id = ?", (fid,))["hrr_vector"] is not None
     reopened.close()
+
+
+def test_update_fact_partial(tmp_path, db_path):
+    store = MemoryStore(db_path, hrr_dim=64)
+    fid = store.add_fact("The deploy pipeline uses Docker on the build host")
+    assert store.update_fact(fid, tags="infra", trust_delta=0.1) is True
+    row = store._one("SELECT tags, trust_score, content FROM facts WHERE fact_id = ?", (fid,))
+    assert row["tags"] == "infra" and row["trust_score"] > 0.5
+    assert row["content"] == "The deploy pipeline uses Docker on the build host"  # untouched fields survive
+    assert store.update_fact(999) is False  # unknown id, no error
+    store.close()
+
+
+def test_update_fact_rejects_empty_content(tmp_path, db_path):
+    """Parity with add_fact: empty content would merge rows under UNIQUE(content)."""
+    store = MemoryStore(db_path, hrr_dim=64)
+    fid = store.add_fact("The deploy pipeline uses Docker on the build host")
+    with pytest.raises(ValueError):
+        store.update_fact(fid, content="   ")
+    row = store._one("SELECT content FROM facts WHERE fact_id = ?", (fid,))
+    assert row["content"] == "The deploy pipeline uses Docker on the build host"  # failed update left the row intact
+    store.close()
