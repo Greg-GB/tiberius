@@ -1,0 +1,36 @@
+name: Bug report
+description: Something is wrong — wrong results, crash, or data loss.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw. If it's wrong results, paste the query and the actual vs expected fact.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: Exact CLI command(s) or harness steps. `python3 -m tiberius.cli --db PATH ...` is ideal — it runs anywhere.
+    validations:
+      required: true
+  - type: dropdown
+    id: harness
+    attributes:
+      label: Harness
+      options:
+        - Hermes (in-process plugin)
+        - OpenCode (TS plugin)
+        - CLI only
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: Python version, numpy installed (yes/no), OS, and whether the DB was created by a different Tiberius version.
+    validations:
+      required: false

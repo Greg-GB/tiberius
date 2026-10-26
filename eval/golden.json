@@ -1,0 +1,20 @@
+[
+  {"q": "which port does the api gateway run on", "expect": [1]},
+  {"q": "billing service port", "expect": [2]},
+  {"q": "analytics worker schedule", "expect": [3]},
+  {"q": "where do the dashboards live", "expect": [4]},
+  {"q": "primary database type and port", "expect": [5]},
+  {"q": "who owns infrastructure", "expect": [7]},
+  {"q": "how long does the deploy pipeline take", "expect": [12]},
+  {"q": "search service p95 latency", "expect": [13]},
+  {"q": "metrics database engine", "expect": [10]},
+  {"q": "api key rotation policy", "expect": [11]},
+  {"q": "staging vs production databases", "expect": [9]},
+  {"q": "benchmark endpoint", "expect": [15]},
+  {"q": "search index rebuild", "expect": [8]},
+  {"q": "alice", "via": "probe", "expect": [6, 14]},
+  {"q": "bob", "via": "probe", "expect": [7]},
+  {"q": "docker", "via": "probe", "expect": [7, 12]},
+  {"q": "bob", "via": "related", "expect": [7]},
+  {"q": "retrieval review", "via": "reason", "entities": ["Alice", "Search Team"], "expect": [6]}
+]

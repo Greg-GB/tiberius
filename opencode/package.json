@@ -1,0 +1,12 @@
+{
+  "name": "tiberius-opencode-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.ts",
+  "devDependencies": {
+    "@opencode/plugin": "^2.1.4",
+    "@types/node": "^26.6.5",
+    "typescript": "^7.0.2"
+  }
+}
