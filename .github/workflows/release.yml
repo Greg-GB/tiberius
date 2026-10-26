@@ -1,0 +1,28 @@
+name: release
+
+# Publishing a release = push a vX.Y.Z tag. The deploy key (git-only) can do
+# that; the workflow's GITHUB_TOKEN (repo-scoped, contents:write) publishes
+# the GitHub Release with a body generated from the commit messages.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to publish"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          generate_body: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
