@@ -36,10 +36,29 @@ in-process under Hermes, and over a local CLI under OpenCode (and any other harn
 - **Quality gates**: 54 tests + an 18-query golden recall eval (`eval/`) that any retrieval
   change must not regress (fixture baseline recall@1 18/18, recall@3 18/18).
 
-## Requirements
+## Prerequisites
 
-Python 3.11+. NumPy optional — without it the engine degrades to keyword mode (FTS5 + Jaccard;
-entity composition still works via SQL, HRR reranking off).
+**Python 3.11+** — required for both harness paths (Hermes runs on it; the
+OpenCode plugin shells out to `python3`). CPython ships the `sqlite3` module,
+which is the engine Tiberius reads and writes with — **there is no separate
+SQLite to install**: the store is a file, not a service.
+
+Getting Python, if you don't have it:
+
+- macOS: `brew install python`
+- Debian/Ubuntu: `sudo apt install python3`
+- OpenCode container: make sure `python3` is in the image (e.g.
+  `apt-get install -y python3`)
+
+Verify: `python3 -c "import sqlite3; print(sqlite3.sqlite_version)"`
+
+Optional:
+
+- **NumPy** — `pip install numpy`. Without it the engine degrades to keyword
+  mode (FTS5 + Jaccard; entity composition still works via SQL, HRR reranking off).
+- **`sqlite3` CLI** — only if you want to inspect the DB without Python
+  (the [Your data](#your-data) snippet works with stdlib alone):
+  macOS ships it; Debian/Ubuntu `sudo apt install sqlite3`; Alpine `apk add sqlite`.
 
 ## Hermes
 
