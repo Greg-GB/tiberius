@@ -21,8 +21,10 @@ first. The invariants that actually matter:
    need a Hermes environment. Never add network calls to tests.
 5. **No secrets, no network.** This is a local-memory project. Nothing here
    may phone home; do not add telemetry, update checks, or external endpoints.
-6. **Commits.** Repo-local identity is already set (Greg Byram). Agent work
-   carries a `Co-authored-by: Hermes Agent <hermes@local>` trailer.
+6. **Commits.** Keep the author as the actual human (or their GitHub noreply
+   identity). Agent-assisted work carries a `Co-authored-by:` trailer naming
+   the agent, so authorship stays legible. Maintainer convention in this repo:
+   `Co-authored-by: Hermes Agent <hermes@local>`.
 
 Run the core suite and the eval before declaring any retrieval-adjacent
 change done.
