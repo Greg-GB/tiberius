@@ -168,31 +168,91 @@ for r in sqlite3.connect('tiberius_store.db').execute(
 
 ## OpenCode (native V2 plugin)
 
-In the OpenCode container (or baked into its image):
+`opencode/index.ts` is a native OpenCode V2 plugin. Every operation shells out
+to the Python CLI in a local subprocess — the core never runs inside the node
+process, and nothing crosses the network. **Runtime-verified against live
+OpenCode 2.0.28** (2026-10-26): all six tools, context injection, and
+session-end extraction were observed working end-to-end; the verified payload
+shapes are documented in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
+### Install
 
 ```bash
+# 1. get the repo — it must live on the same host/container as OpenCode
 git clone https://github.com/Greg-GB/tiberius /opt/tiberius
-pip install numpy                # optional: HRR reranking
+
+# 2. python3 with stdlib sqlite3 (see [Prerequisites](#prerequisites))
+python3 -c "import sqlite3; print(sqlite3.sqlite_version)"
+
+# optional: HRR reranking (the engine degrades to keyword mode without it)
+pip install numpy
 ```
 
-`opencode.json`:
+Then add a plugin entry to OpenCode's config — either the global
+`~/.config/opencode/opencode.json` or a project-level `opencode.json` next to
+your project:
 
 ```jsonc
 {
   "plugins": [{
-    "package": "file:///opt/tiberius/opencode",
+    "package": "file:///opt/tiberius/opencode",   // local directory (npm/GitHub packages work too)
     "options": {
       "db": "/opt/tiberius/memory.db",      // default: ~/.tiberius/memory.db
-      "pythonpath": "/opt"                  // repo parent, so package `tiberius` imports
+      "pythonpath": "/opt"                  // only if `tiberius` isn't importable yet: the repo's PARENT
     }
   }]
 }
 ```
 
-The plugin gives the agent `memory_search` / `memory_probe` / `memory_add` tools, injects the
-top relevant facts into the system prompt on each session's first model call, and regex-extracts
-facts from user messages when a session finishes. No cross-container traffic — the engine runs
-in the same container as OpenCode.
+Restart OpenCode — or just wait: plugin files and config hot-reload without a
+restart.
+
+### Options
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `db` | `~/.tiberius/memory.db` | SQLite database file (created on first use) |
+| `engine` | `["python3", "-m", "tiberius.cli"]` | argv used to launch the engine |
+| `pythonpath` | inherited from the environment | `PYTHONPATH` for the engine; set it to the repo parent so `python3 -m tiberius.cli` resolves |
+| `injectTop` | `4` | facts injected into the system prompt at session start |
+
+### What the agent gets
+
+- **Six tools**: `memory_search` / `memory_probe` / `memory_related` /
+  `memory_reason` / `memory_add` / `memory_feedback` — the same operation
+  surface as the Hermes provider.
+- **Context injection**: on the session's first model call, the top
+  `injectTop` facts relevant to the latest user message are appended to the
+  system prompt; later turns rely on the tools.
+- **Session-end extraction**: when an execution succeeds (or is interrupted),
+  statements like "I prefer X" / "the project uses Y" are regex-extracted from
+  the user's messages. Idempotent — facts dedupe on exact content, so
+  re-running per completed turn is safe.
+
+### Data and persistence
+
+The store is a single SQLite file (WAL mode) at `options.db` (default
+`~/.tiberius/memory.db`). **Put it on persistent storage** — if the file lives
+on ephemeral container storage, memory dies with the container. Multiple
+OpenCode instances on the same host may share one file: SQLite serializes
+writers behind a 10s busy timeout.
+
+### Failure modes
+
+Memory must never break model dispatch: every engine call has a 30s timeout
+and is caught. Tool calls return `{"error": ...}` when the engine fails
+(including the CLI's own structured errors, e.g. feedback on an unknown
+`fact_id`); context injection and extraction simply skip. In-flight engine
+subprocesses are killed when the plugin unloads, so a restart can't leave a
+python process holding the DB write-lock.
+
+### Development
+
+```bash
+cd opencode && npm ci && npm run typecheck
+```
+
+To uninstall: remove the `plugins` entry. The database file stays where it is.
 
 ## Any other harness
 

@@ -243,10 +243,19 @@ end-to-end. Verified payload shapes (these were the untested assumptions):
   `{ id, created, type, durable, data }` (there is no `properties` key).
   Extraction reads that session's user messages via
   `ctx.session.context({ sessionID })`, which *does* return the API shape
-  (`{ id, type, text, ... }`), hence the `m.type === "user"` filter.
-- `runEngine` swallows engine failures (logs a warning, returns an empty
-  result) — a memory outage must never break the session; but `--db` is
-  always passed first so a DB error can't be misread as a positional query.
+  (`{ id, type, text, ... }`), hence the `m.type === "user"` filter. The
+  message list is fed to the CLI on **stdin** (`extract` blocks on
+  `stdin.read()` until it is written *and closed* — the event loop wedges
+  otherwise). Re-running per completed turn is safe: `add_fact` dedupes on
+  UNIQUE(content).
+- `runEngine` is defensive: every call has a 30s timeout (a hung engine must
+  never hang the model — the context hook awaits one before the session's
+  first dispatch), CLI errors surface as structured `{"error": ...}` (the
+  CLI contract is JSON on stdout, exit 1), tool failures become `{"error":
+  ...}` results the model can read, and in-flight children are killed on
+  plugin unload so a restart can't leave a python process holding the DB
+  write-lock. `--db` is always passed first so a DB error can't be misread
+  as a positional query.
 - Config: `opencode.json` `plugins` entry — `{ "package":
   "file:///…/opencode", "options": { "db", "engine", "pythonpath",
   "injectTop" } }` (all optional; defaults match the CLI). Local plugin
@@ -305,11 +314,14 @@ release workflow publishes on `vX.Y.Z` tags.
     (2026-10-26): all six tools, context injection, and event-driven
     extraction were observed working end-to-end; the verified payload
     shapes are documented in the adapter section above. The first
-    deployment attempt shipped three silent failures (wrong `messages`
-    field names, wrong event payload key, un-awaited hook) — if a new
-    OpenCode release changes the `event.data` envelope or the hook
-    `messages` shape, re-verify against a live instance before relying
-    on it.
+    deployment attempt shipped four silent failures (wrong `messages`
+    field names, wrong event payload key, un-awaited hook, and extract
+    input never written to the engine's stdin — the CLI then blocks
+    forever on `stdin.read()` and wedges the event loop). A later code
+    review also hardened the subprocess path (30s timeout, structured
+    CLI errors, teardown kills). If a new OpenCode release changes the
+    `event.data` envelope or the hook `messages` shape, re-verify against
+    a live instance before relying on it.
 
 ## Known gaps (deliberate, with ceilings)
 

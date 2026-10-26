@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "main": "index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
   "devDependencies": {
     "@opencode/plugin": "^2.1.4",
     "@types/node": "^26.6.5",
