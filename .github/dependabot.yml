@@ -1,0 +1,10 @@
+version: 2
+updates:
+  # GitHub Actions: bump action versions automatically (the one ecosystem
+  # where stale pins are a real security surface).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: monthly
+  # npm: typecheck-only dev dependencies, host supplies the runtime —
+  # updates are manual (see package-lock.json), not automated.
