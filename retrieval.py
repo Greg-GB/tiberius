@@ -3,6 +3,7 @@ Jaccard similarity and HRR vector similarity, trust-weighted (ported from KIK me
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -26,6 +27,9 @@ _FTS_STOPWORDS = frozenset("""
     ours ourselves out over own same she should so some such than that the their theirs them themselves then there these
     they this those through to too under until up very was we were what when where which while who whom why will with
     would you your yours yourself yourselves""".split())
+
+
+logger = logging.getLogger(__name__)
 
 
 def _shift(sim: float) -> float:
@@ -241,8 +245,11 @@ class FactRetriever:
                f"WHERE facts_fts MATCH ? {category_clause}AND f.trust_score >= ? ORDER BY facts_fts.rank LIMIT ?")
         try:
             results = [dict(row) for row in self.store._conn.execute(sql, params).fetchall()]
-        except Exception:
-            return []  # FTS5 MATCH can fail on malformed queries
+        except Exception as exc:
+            # FTS5 MATCH can fail on malformed queries; a persistent failure here
+            # means a corrupt index — log it so it is not invisible.
+            logger.warning("tiberius FTS5 search failed for %r: %s", query, exc)
+            return []
         # FTS5 rank is negative (lower = better); normalize |rank| / max to [0, 1] (1e-6 floor avoids div by zero)
         max_rank = max([abs(f["fts_rank_raw"]) for f in results] + [1e-6])
         for fact in results:

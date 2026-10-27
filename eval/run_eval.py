@@ -12,7 +12,7 @@ expectation — check the printed top hit before changing the query set.
 The fixture is deliberately synthetic (fictional Acme stack): this repo is public and
 must never contain a real user's memory content.
 """
-import json, os, shutil, sys, tempfile, types
+import json, os, sqlite3, sys, tempfile, types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 TIBERIUS_DIR = os.path.dirname(HERE)
@@ -38,8 +38,14 @@ def run_case(r, case):
     return r.reason(case["entities"], limit=5)  # via == "reason"
 
 def open_store(tmp):
-    if len(sys.argv) > 1:  # existing DB (live store): copy it, never mutate the original
-        shutil.copy(sys.argv[1], tmp)
+    if len(sys.argv) > 1:  # existing DB (live store): back it up, never mutate the original
+        # SQLite backup API, not a file copy: a plain copy of a live WAL-mode DB
+        # can miss the last un-checkpointed transactions.
+        src = sqlite3.connect(sys.argv[1])
+        dst = sqlite3.connect(tmp)
+        with dst:
+            src.backup(dst)
+        dst.close(); src.close()
         return MemoryStore(db_path=tmp, hrr_dim=1024)
     s = MemoryStore(db_path=tmp, hrr_dim=1024)  # fresh fixture DB
     for f in json.load(open(os.path.join(HERE, "fixture.json"))):

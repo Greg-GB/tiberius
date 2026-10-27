@@ -85,7 +85,9 @@ def _results(items: list, key: str = "results") -> str:
 
 
 def _limit(args: dict) -> int:
-    return int(args.get("limit", 10))
+    # SQLite LIMIT -1 means unlimited; a negative limit from the model must
+    # not dump the whole store.
+    return max(1, int(args.get("limit", 10)))
 
 
 def _tool_handler(actions: dict):

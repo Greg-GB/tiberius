@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -65,6 +66,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("extract", help="regex-extract facts from a JSON message list on stdin")
 
     a = p.parse_args(argv)
+    if a.cmd in ("search", "reason"):
+        a.top = max(1, a.top)  # SQLite LIMIT -1 means unlimited — a negative --top must not dump the store
     store = MemoryStore(db_path=_db_path(a))
     try:
         ret = FactRetriever(store)
@@ -115,9 +118,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         print(json.dumps({"results": [_row(r) for r in rows], "count": len(rows)}))
         return 0
-    except KeyError as exc:
-        # Unknown fact_id (feedback) and the like surface as a JSON error, not a traceback —
-        # the CLI contract is JSON on stdout, exit 1 on error.
+    except (KeyError, ValueError, sqlite3.Error) as exc:
+        # Unknown fact_id (feedback), empty add content, and sqlite-level
+        # failures (locked/corrupt DB) surface as a JSON error, not a
+        # traceback — the CLI contract is JSON on stdout, exit 1 on error.
         print(json.dumps({"error": str(exc)}))
         return 1
     finally:
