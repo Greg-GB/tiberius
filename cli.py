@@ -63,10 +63,14 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("action", choices=["helpful", "unhelpful"])
     s = sub.add_parser("remove", help="delete a fact by id (entity links + FTS cleaned)")
     s.add_argument("fact_id", type=int)
+    s = sub.add_parser("list", help="browse facts by trust (find fact_ids to remove)")
+    s.add_argument("--category")
+    s.add_argument("--min-trust", type=float, default=0.0)
+    s.add_argument("--top", type=int, default=50)
     sub.add_parser("extract", help="regex-extract facts from a JSON message list on stdin")
 
     a = p.parse_args(argv)
-    if a.cmd in ("search", "reason"):
+    if a.cmd in ("search", "reason", "list"):
         a.top = max(1, a.top)  # SQLite LIMIT -1 means unlimited — a negative --top must not dump the store
     store = MemoryStore(db_path=_db_path(a))
     try:
@@ -92,6 +96,8 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             print(json.dumps({"removed": a.fact_id}))
             return 0
+        elif a.cmd == "list":
+            rows = store.list_facts(category=a.category, min_trust=a.min_trust, limit=a.top)
         else:  # extract
             raw = sys.stdin.read()
             try:

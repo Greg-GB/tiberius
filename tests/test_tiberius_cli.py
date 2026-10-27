@@ -59,3 +59,13 @@ def test_cli_remove(tmp_path, capsys):
     rc = cli.main(["--db", db, "remove", "999"])
     assert rc == 1  # unknown id → JSON error, same contract as feedback
     assert "error" in json.loads(capsys.readouterr().out.strip())
+
+
+def test_cli_list(tmp_path, capsys):
+    db = str(tmp_path / "m.db")
+    out = _run(capsys, "--db", db, "add", "The deploy pipeline uses Docker on the build host.")
+    fid = out["fact_id"]
+
+    out = _run(capsys, "--db", db, "list", "--top", "5")
+    assert out["results"][0]["fact_id"] == fid
+    assert "hrr_vector" not in out["results"][0]  # BLOBs never leak into CLI output
