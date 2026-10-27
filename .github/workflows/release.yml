@@ -1,8 +1,16 @@
 name: release
 
-# Publishing a release = push a vX.Y.Z tag. The deploy key (git-only) can do
-# that; the workflow's GITHUB_TOKEN (repo-scoped, contents:write) publishes
-# the GitHub Release with a body generated from the commit messages.
+# Publishing a release = pushing a vX.Y.Z tag. Tags are pushed from the
+# maintainer's machine over HTTPS (the same fine-grained token that pushes
+# branches); the workflow's GITHUB_TOKEN (contents: write) then publishes the
+# GitHub Release with commit-generated notes.
+#
+# Guards against a bad tag becoming a public release:
+#   - the tag must point at a commit that is on main
+#   - the tag's version must match pyproject.toml at that commit (a mismatch
+#     means the version bump did not land in the tagged commit)
+#   - workflow_dispatch is restricted to the maintainer (pushing a tag is
+#     enough to release, so nobody else needs the dispatch trigger)
 
 on:
   push:
@@ -17,12 +25,46 @@ permissions:
   contents: write
 
 jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Resolve tag
+        id: resolve
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=$INPUTS_TAG" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.resolve.outputs.tag }}
+          fetch-depth: 0
+      - name: Verify tag
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git fetch -q origin main
+          if ! git merge-base --is-ancestor "$TAG" origin/main; then
+            echo "::error::tag $TAG does not point at a commit on main"
+            exit 1
+          fi
+          version="$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::tag $TAG does not match pyproject.toml version $version at that commit"
+            exit 1
+          fi
+          echo "tag $TAG verified: on main, matches version $version"
+
   release:
+    if: github.event_name == 'push' || github.actor == 'Greg-GB'
+    needs: guard
     runs-on: ubuntu-24.04
     steps:
       - uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          tag_name: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
