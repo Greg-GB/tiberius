@@ -22,9 +22,12 @@ the rules below). The invariants that actually matter:
    need a Hermes environment. Never add network calls to tests.
 5. **No secrets, no network.** This is a local-memory project. Nothing here
    may phone home; do not add telemetry, update checks, or external endpoints.
-6. **Commits.** Normal commits, author is the actual human (or their GitHub
-   noreply identity). No `Co-authored-by:` trailer convention in this repo —
-   agent-assisted work is committed like anything else.
+6. **Commits and PRs.** Normal commits, author is the actual human (or their
+   GitHub noreply identity). No `Co-authored-by:` trailer convention in this
+   repo — agent-assisted work is committed like anything else. Work lands via
+   short-lived feature branches and pull requests (`gh pr create`); no direct
+   pushes to `main` (the protect-main discipline in CONTRIBUTING.md binds
+   agent work too).
 
 Run the core suite and the eval before declaring any retrieval-adjacent
 change done.
