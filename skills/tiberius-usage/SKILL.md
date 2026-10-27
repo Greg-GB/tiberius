@@ -21,6 +21,8 @@ projects, and tools. Nothing leaves the machine.
   session's context.
 - **When in doubt, search**: one local call (~200ms). A miss is cheaper than
   an answer that contradicts a stored decision.
+- **What was just recorded?** `list` with `since` (`24h`, `7d`, or an ISO
+  date) — recent facts by time, not by keyword.
 - If recall returns nothing relevant, answer normally. Do not loop on
   rephrasings — one retry at most.
 

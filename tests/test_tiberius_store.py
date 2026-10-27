@@ -283,3 +283,16 @@ def test_update_fact_rejects_empty_content(tmp_path, db_path):
     row = store._one("SELECT content FROM facts WHERE fact_id = ?", (fid,))
     assert row["content"] == "The deploy pipeline uses Docker on the build host"  # failed update left the row intact
     store.close()
+
+
+def test_list_facts_since(tmp_path, db_path):
+    """since filters on created_at (UTC): relative and ISO forms, future excludes, garbage raises."""
+    store = MemoryStore(db_path, hrr_dim=64)
+    fid = store.add_fact("The deploy pipeline uses Docker on the build host")
+    assert [r["fact_id"] for r in store.list_facts(since="1h")] == [fid]      # fresh fact is within the last hour
+    assert [r["fact_id"] for r in store.list_facts(since="2000-01-01")] == [fid]  # far-past ISO includes
+    assert store.list_facts(since="2030-01-01") == []                          # future excludes
+    assert store.list_facts(since="2030-01-01T00:00:00") == []                 # T-separator form
+    with pytest.raises(ValueError):
+        store.list_facts(since="banana")
+    store.close()

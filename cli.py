@@ -78,6 +78,7 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("list", help="browse facts by trust (find fact_ids to remove)")
     s.add_argument("--category")
     s.add_argument("--min-trust", type=float, default=0.0)
+    s.add_argument("--since", help="only facts created at or after: ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w)")
     s.add_argument("--top", type=int, default=50)
     sub.add_parser("extract", help="regex-extract facts from a JSON message list on stdin")
 
@@ -124,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"updated": a.fact_id}))
             return 0
         elif a.cmd == "list":
-            rows = store.list_facts(category=a.category, min_trust=a.min_trust, limit=a.top)
+            rows = store.list_facts(category=a.category, min_trust=a.min_trust, limit=a.top, since=a.since)
         else:  # extract
             raw = sys.stdin.read()
             try:

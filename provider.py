@@ -51,6 +51,7 @@ FACT_STORE_SCHEMA = {
             "tags": {"type": "string", "description": "Comma-separated tags."},
             "trust_delta": {"type": "number", "description": "Trust adjustment for 'update'."},
             "min_trust": {"type": "number", "description": "Minimum trust filter (default: 0.3)."},
+            "since": {"type": "string", "description": "'list': only facts created at or after — ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w)."},
             "limit": {"type": "integer", "description": "Max results (default: 10)."},
         },
         "required": ["action"],
@@ -234,7 +235,7 @@ class TiberiusMemoryProvider(MemoryProvider):
                 tags=a.get("tags"), category=a.get("category"))}),
             "remove": lambda self, a: json.dumps({"removed": self._store.remove_fact(int(a["fact_id"]))}),
             "list": lambda self, a: _results(self._store.list_facts(
-                category=a.get("category"), min_trust=float(a.get("min_trust", 0.0)), limit=_limit(a)), key="facts"),
+                category=a.get("category"), min_trust=float(a.get("min_trust", 0.0)), limit=_limit(a), since=a.get("since")), key="facts"),
         }),
         "fact_feedback": lambda self, a: json.dumps(self._store.record_feedback(int(a["fact_id"]), helpful=a["action"] == "helpful")),
     }

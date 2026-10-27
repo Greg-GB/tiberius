@@ -46,6 +46,18 @@ def test_cli_add_reports_possible_duplicates(tmp_path, capsys):
     assert "content" in dups[0] and "score" in dups[0]
 
 
+def test_cli_list_since(tmp_path, capsys):
+    db = str(tmp_path / "m.db")
+    _run(capsys, "--db", db, "add", "The deploy pipeline uses Docker on the build host.")
+
+    assert _run(capsys, "--db", db, "list", "--since", "24h")["count"] == 1   # relative form
+    assert _run(capsys, "--db", db, "list", "--since", "2000-01-01")["count"] == 1  # ISO date form
+
+    rc = cli.main(["--db", db, "list", "--since", "banana"])
+    assert rc == 1  # bad since is a JSON error + exit 1, not a traceback
+    assert "error" in json.loads(capsys.readouterr().out.strip())
+
+
 def test_cli_feedback_unknown_fact_id_is_json_error(tmp_path, capsys):
     db = str(tmp_path / "m.db")
     _run(capsys, "--db", db, "add", "The deploy pipeline uses Docker on the build host.")
