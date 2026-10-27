@@ -188,16 +188,19 @@ class FactRetriever:
             if len(rows) > 500:  # O(n²) guard: only compare the most recently updated facts
                 rows = sorted(rows, key=lambda r: r["updated_at"] or r["created_at"], reverse=True)[:500]
             facts = []  # (public dict, lower-cased entity names, phase vector)
+            # One entity lookup for all rows (a per-row query would be N round-trips).
+            qmarks = ",".join("?" * len(rows))
+            entities_by_fact: dict = {}
+            for er in self.store._conn.execute(
+                    "SELECT fe.fact_id, e.name FROM entities e JOIN fact_entities fe ON fe.entity_id = e.entity_id "
+                    f"WHERE fe.fact_id IN ({qmarks})", [r["fact_id"] for r in rows]):
+                entities_by_fact.setdefault(er["fact_id"], set()).add(er["name"].lower())
             for row in rows:
                 fact = dict(row)
                 vec = self._phases(fact.pop("hrr_vector"))
                 if vec is None:
                     continue  # wrong-dim blob — skip rather than crash the whole pass
-                entity_rows = self.store._conn.execute(
-                    "SELECT e.name FROM entities e JOIN fact_entities fe ON fe.entity_id = e.entity_id WHERE fe.fact_id = ?",
-                    (fact["fact_id"],),
-                ).fetchall()
-                facts.append((fact, {r["name"].lower() for r in entity_rows}, vec))
+                facts.append((fact, entities_by_fact.get(fact["fact_id"], set()), vec))
             contradictions = []
             for i, (f1, ents1, vec1) in enumerate(facts):
                 for f2, ents2, vec2 in facts[i + 1:]:
