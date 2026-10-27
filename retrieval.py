@@ -68,6 +68,26 @@ class FactRetriever:
         call _search directly so each recall counts its returned facts exactly once."""
         return self._recorded(self._search(query, category, min_trust, limit))
 
+    def find_duplicates(self, content: str, new_id: int, threshold: float = 0.5, limit: int = 3) -> list[dict]:
+        """Near-duplicate candidates for a just-added fact (report-only — the caller decides;
+        a memory store must never silently refuse to save). Candidate generation reuses the FTS
+        pipeline at min_trust=0.0 (a low-trust near-duplicate is exactly the junk to surface);
+        ranking is raw token Jaccard, not search's trust-weighted score, so trust cannot hide a
+        near-identical row. Calls _search (not search) so the check doesn't inflate retrieval_count.
+        ponytail: candidate pool is the FTS top-5 — a near-duplicate buried past rank 5 is missed;
+        widen the pool or scan all facts if misses become measurable."""
+        query_tokens = self._tokenize(content)
+        out = []
+        for row in self._search(content, min_trust=0.0, limit=5):
+            if row["fact_id"] == new_id:
+                continue
+            score = self._jaccard_similarity(query_tokens, self._tokenize(row["content"]))
+            if score >= threshold:
+                out.append({"fact_id": row["fact_id"], "content": row["content"], "score": round(score, 3)})
+            if len(out) >= limit:
+                break
+        return out
+
     def _search(self, query: str, category: str | None = None, min_trust: float = 0.3, limit: int = 10) -> list[dict]:
         with self.store._lock:  # retriever reads must not interleave with a store writer on the shared connection
             """FTS5 candidates (limit*3) → Jaccard + HRR rerank → trust weighting → optional temporal decay

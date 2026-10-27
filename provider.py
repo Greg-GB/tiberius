@@ -214,10 +214,14 @@ class TiberiusMemoryProvider(MemoryProvider):
         """'probe' / 'related': single-entity retriever queries."""
         return _results(getattr(self._retriever, method)(a["entity"], category=a.get("category"), limit=_limit(a)))
 
+    def _add(self, a: dict) -> str:
+        """'add': store the fact and report near-duplicate candidates (report-only — the caller removes if it agrees)."""
+        fid = self._store.add_fact(a["content"], category=a.get("category", "general"), tags=a.get("tags", ""))
+        return json.dumps({"fact_id": fid, "possible_duplicates": self._retriever.find_duplicates(a["content"], fid)})
+
     _TOOL_HANDLERS = {
         "fact_store": _tool_handler({
-            "add": lambda self, a: json.dumps({"fact_id": self._store.add_fact(
-                a["content"], category=a.get("category", "general"), tags=a.get("tags", "")), "status": "added"}),
+            "add": lambda self, a: self._add(a),
             "search": lambda self, a: _results(self._retriever.search(
                 a["query"], category=a.get("category"), min_trust=float(a.get("min_trust", self._min_trust)), limit=_limit(a))),
             "probe": lambda self, a: self._entity_query("probe", a),

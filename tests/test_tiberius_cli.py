@@ -35,6 +35,17 @@ def test_cli_probe_and_extract(tmp_path, capsys, monkeypatch):
     assert out["added"] == 2  # one user_pref statement + one project statement
 
 
+def test_cli_add_reports_possible_duplicates(tmp_path, capsys):
+    db = str(tmp_path / "m.db")
+    _run(capsys, "--db", db, "add", "The deploy pipeline uses Docker on the build host.")
+
+    out = _run(capsys, "--db", db, "add", "Deploy pipeline uses Docker on the build host.")
+
+    dups = out["possible_duplicates"]
+    assert dups and dups[0]["fact_id"] == 1  # near-identical prior fact is surfaced
+    assert "content" in dups[0] and "score" in dups[0]
+
+
 def test_cli_feedback_unknown_fact_id_is_json_error(tmp_path, capsys):
     db = str(tmp_path / "m.db")
     _run(capsys, "--db", db, "add", "The deploy pipeline uses Docker on the build host.")

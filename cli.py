@@ -98,7 +98,9 @@ def main(argv: list[str] | None = None) -> int:
         elif a.cmd == "contradict":
             rows = ret.contradict(category=a.category, threshold=a.threshold, limit=a.top)
         elif a.cmd == "add":
-            print(json.dumps({"fact_id": store.add_fact(a.content, category=a.category, tags=a.tags)}))
+            new_id = store.add_fact(a.content, category=a.category, tags=a.tags)
+            # Near-duplicate candidates for the caller to act on (report-only — removal is the caller's call).
+            print(json.dumps({"fact_id": new_id, "possible_duplicates": ret.find_duplicates(a.content, new_id)}))
             return 0
         elif a.cmd == "feedback":
             print(json.dumps(store.record_feedback(a.fact_id, helpful=a.action == "helpful")))

@@ -91,6 +91,25 @@ def test_prefetch_recovers_prose_query(retriever_with_facts):
     # The top hit should be the deployment rollback fact
     assert "deployment rollback" in results[0]["content"].lower()
 
+
+def test_find_duplicates_flags_paraphrase_not_distinct(tmp_path):
+    """Near-identical content is flagged; a token-sharing-but-distinct fact is not;
+    the new fact is never its own duplicate."""
+    store = MemoryStore(str(tmp_path / "dup.db"))
+    try:
+        fid_dup = store.add_fact("The deploy pipeline uses Docker on the build host.")
+        fid_distinct = store.add_fact("We use Docker to build the mobile app images.")
+        ret = FactRetriever(store=store)
+        new_id = store.add_fact("Deploy pipeline uses Docker on the build host.")
+        dups = ret.find_duplicates("Deploy pipeline uses Docker on the build host.", new_id)
+        ids = [d["fact_id"] for d in dups]
+        assert fid_dup in ids              # paraphrase (dropped article) is flagged
+        assert fid_distinct not in ids     # shares docker/build/the but is a distinct fact
+        assert new_id not in ids           # a fact is never its own duplicate
+        assert all(d["score"] >= 0.5 for d in dups)
+    finally:
+        store.close()
+
 # ---------------------------------------------------------------------------
 # Loop-invariant encode hoists (perf) — search/probe/related must encode
 # constant vectors ONCE per call, not once per candidate/row.
