@@ -272,6 +272,7 @@ python3 -m tiberius.cli --db PATH related "entity"
 python3 -m tiberius.cli --db PATH reason "a" "b"
 python3 -m tiberius.cli --db PATH add "fact" [--category C] [--tags a,b]
 python3 -m tiberius.cli --db PATH feedback <id> helpful|unhelpful
+python3 -m tiberius.cli --db PATH remove <id>
 echo '[{"role":"user","content":"..."}]' | python3 -m tiberius.cli --db PATH extract
 ```
 
