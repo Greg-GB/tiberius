@@ -47,9 +47,8 @@ bundle.
 
 ## Commits
 
-Conventional-ish, imperative subject, body explaining the why. Agent-assisted
-commits carry a `Co-authored-by: Hermes Agent <hermes@local>` trailer — keep
-that pattern so authorship stays legible.
+Conventional-ish, imperative subject, body explaining the why. Normal
+commits — this repo has no `Co-authored-by:` trailer convention.
 
 ## Branches and releases
 
