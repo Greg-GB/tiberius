@@ -25,3 +25,17 @@ jobs:
       # Golden eval against the committed synthetic fixture (CI-safe, no live DB).
       - name: Golden eval (fixture)
         run: python eval/run_eval.py
+
+  plugin:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      # The OpenCode plugin must typecheck against the real @opencode/plugin
+      # types — the runtime bugs found in v0.1.x were all TypeScript-side.
+      - name: Install deps
+        run: cd opencode && npm ci --no-audit --no-fund
+      - name: Typecheck
+        run: cd opencode && npm run typecheck
