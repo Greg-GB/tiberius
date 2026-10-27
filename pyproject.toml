@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "hermes-plugin-tiberius"
 version = "0.2.5"
@@ -10,6 +14,12 @@ license = { text = "MIT" }
 dependencies = [
     "numpy>=1.26,<3",
 ]
+
+[tool.setuptools]
+# The repo root itself is the `tiberius` package (see __init__.py); map it to the
+# project root so `pip install .` works regardless of the clone directory name.
+packages = ["tiberius"]
+package-dir = {"tiberius" = "."}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
