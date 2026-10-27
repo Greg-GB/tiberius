@@ -152,6 +152,16 @@ Config in `config.yaml` under `plugins.tiberius`:
 | `default_trust` | `0.5` | Default trust score for new facts |
 | `hrr_dim` | `1024` | HRR vector dimensions |
 
+### Uninstall
+
+1. Remove `tiberius` from `plugins.enabled` in `config.yaml` — and switch the
+   memory provider first (`hermes memory setup`) if tiberius is the active one.
+2. Delete the clone: `rm -rf ~/.hermes/plugins/tiberius`.
+3. Restart the gateway so it stops loading the plugin.
+4. **The database stays.** Uninstalling only stops Hermes reading and writing —
+   the file at `db_path` (default `~/.hermes/tiberius_store.db`) is untouched.
+   Keep it as a backup, or delete it if you want the memory gone.
+
 ## Your data
 
 The store is a single SQLite file, created automatically on first use —
