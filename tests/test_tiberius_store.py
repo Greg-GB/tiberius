@@ -177,8 +177,8 @@ class TestConcurrency:
         try:
             monkeypatch.setattr(
                 MemoryStore,
-                "rebuild_bank",
-                lambda self, category: (_ for _ in ()).throw(RuntimeError("boom")),
+                "_link_entities",
+                lambda self, fact_id, content: (_ for _ in ()).throw(RuntimeError("boom")),
             )
             with pytest.raises(RuntimeError, match="boom"):
                 broken.add_fact("write that fails after the INSERT")

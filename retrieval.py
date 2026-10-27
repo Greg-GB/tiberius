@@ -46,9 +46,6 @@ class FactRetriever:
         self.fts_weight, self.jaccard_weight, self.hrr_weight = fts_weight, jaccard_weight, hrr_weight
         self._role_content = hrr.encode_atom(hrr.ROLE_CONTENT, self.hrr_dim) if self.hrr_weight > 0 else None
 
-    def _atom(self, word: str):
-        return hrr.encode_atom(word, self.hrr_dim)
-
     def _phases(self, blob: bytes):
         try:
             return hrr.bytes_to_phases(blob, dim=self.hrr_dim)
@@ -91,11 +88,6 @@ class FactRetriever:
             for fact in results:
                 fact.pop("hrr_vector", None)  # callers expect JSON-serializable dicts
             return results
-
-    def _vector_query(self, fallback: str, category: str | None, limit: int, sim_fn: Callable) -> list[dict]:
-        """Rank every fact vector (optionally per category) by sim_fn; FTS5 fallback when no vectors exist."""
-        rows = self._vector_rows(category)
-        return self._rank_by_vector(rows, sim_fn, limit) if rows else self.search(fallback, category=category, limit=limit)
 
     def _entity_fact_ids(self, entity: str, category: str | None) -> set:
         """Fact IDs structurally linked to an entity name (case-insensitive), optionally within a category."""

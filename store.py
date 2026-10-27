@@ -60,6 +60,9 @@ CREATE TRIGGER IF NOT EXISTS facts_au AFTER UPDATE ON facts BEGIN
         VALUES (new.fact_id, new.content, new.tags);
 END;
 
+-- Legacy from upstream: no longer read or written (composition happens in the
+-- fact_entities SQL graph; probe/related/reason bundle context on the fly).
+-- Kept so existing databases stay untouched.
 CREATE TABLE IF NOT EXISTS memory_banks (
     bank_id    INTEGER PRIMARY KEY AUTOINCREMENT,
     bank_name  TEXT NOT NULL UNIQUE,
@@ -188,7 +191,6 @@ class MemoryStore:
                 return int(self._one("SELECT fact_id FROM facts WHERE content = ?", (content,))["fact_id"])
             self._link_entities(fact_id, content)
             self._compute_hrr_vector(fact_id, content)
-            self.rebuild_bank(category)
             return fact_id
 
     def update_fact(self, fact_id: int, content: str | None = None, trust_delta: float | None = None,
@@ -214,18 +216,16 @@ class MemoryStore:
                 self._write("DELETE FROM fact_entities WHERE fact_id = ?", (fact_id,))
                 self._link_entities(fact_id, content)
                 self._compute_hrr_vector(fact_id, content)
-            self.rebuild_bank(category or self._one("SELECT category FROM facts WHERE fact_id = ?", (fact_id,))["category"])
             return True
 
     def remove_fact(self, fact_id: int) -> bool:
         """Delete a fact and its entity links. Returns True if the row existed."""
         with self._lock:
-            row = self._one("SELECT fact_id, category FROM facts WHERE fact_id = ?", (fact_id,))
+            row = self._one("SELECT fact_id FROM facts WHERE fact_id = ?", (fact_id,))
             if row is None:
                 return False
             self._conn.execute("DELETE FROM fact_entities WHERE fact_id = ?", (fact_id,))
             self._write("DELETE FROM facts WHERE fact_id = ?", (fact_id,))
-            self.rebuild_bank(row["category"])
             return True
 
     def list_facts(self, category: str | None = None, min_trust: float = 0.0, limit: int = 50) -> list[dict]:
@@ -316,33 +316,14 @@ class MemoryStore:
 
     def _backfill_vectors(self) -> None:
         """Compute HRR vectors for facts that lack one (pre-HRR imports, or rows written while numpy was
-        unavailable) and rebuild the banks of the affected categories. No-op when nothing is missing."""
+        unavailable). No-op when nothing is missing."""
         if not self._hrr_available:
             return
-        rows = self._conn.execute("SELECT fact_id, content, category FROM facts WHERE hrr_vector IS NULL").fetchall()
+        rows = self._conn.execute("SELECT fact_id, content FROM facts WHERE hrr_vector IS NULL").fetchall()
         if not rows:
             return
         for row in rows:
             self._compute_hrr_vector(row["fact_id"], row["content"])
-        for category in {row["category"] for row in rows}:
-            self.rebuild_bank(category)
-
-    def rebuild_bank(self, category: str) -> None:
-        """Full rebuild of a category's memory bank from all its fact vectors (no-op without numpy or
-        without any vectorized fact). Public: the retriever rebuilds lazily on probe when a bank is missing."""
-        if not self._hrr_available:
-            return
-        bank_name = f"cat:{category}"
-        rows = self._conn.execute("SELECT hrr_vector FROM facts WHERE category = ? AND hrr_vector IS NOT NULL", (category,)).fetchall()
-        if not rows:
-            self._write("DELETE FROM memory_banks WHERE bank_name = ?", (bank_name,))
-            return
-        bank_vector = hrr.bundle(*[hrr.bytes_to_phases(row["hrr_vector"], dim=self.hrr_dim) for row in rows])
-        hrr.snr_estimate(self.hrr_dim, len(rows))  # warns when near capacity
-        self._write("INSERT INTO memory_banks (bank_name, vector, dim, fact_count, updated_at) "
-                    "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP) ON CONFLICT(bank_name) DO UPDATE SET "
-                    "vector = excluded.vector, dim = excluded.dim, fact_count = excluded.fact_count, "
-                    "updated_at = excluded.updated_at", (bank_name, hrr.phases_to_bytes(bank_vector), self.hrr_dim, len(rows)))
 
     @classmethod
     def release_all_under(cls, directory: "str | Path") -> int:
