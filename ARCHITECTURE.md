@@ -233,10 +233,10 @@ user text into candidate facts — one match per category:
 
 **CLI (`cli.py`).** The subprocess surface. DB resolution: `--db` >
 `$TIBERIUS_DB` > `~/.tiberius/memory.db`. Commands: search/probe/related/
-reason/add/feedback/remove/extract. Contract: **JSON on stdout, exit 0**;
-errors (unknown fact_id, empty add content, sqlite-level failures) are
-`{"error": ...}` + exit 1 — no tracebacks (callers parse stdout as JSON
-unconditionally).
+reason/contradict/add/feedback/remove/list/extract. Contract: **JSON on
+stdout, exit 0**; errors (unknown fact_id, empty add content, sqlite-level
+failures) are `{"error": ...}` + exit 1 — no tracebacks (callers parse
+stdout as JSON unconditionally).
 
 **OpenCode (`opencode/index.ts`).** Native V2 plugin; every operation shells
 out to `cli.py` (the core never runs inside the node process).

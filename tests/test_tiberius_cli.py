@@ -61,6 +61,21 @@ def test_cli_remove(tmp_path, capsys):
     assert "error" in json.loads(capsys.readouterr().out.strip())
 
 
+def test_cli_contradict(tmp_path, capsys):
+    db = str(tmp_path / "m.db")
+    _run(capsys, "--db", db, "add", "The Tiberius project stores facts in SQLite.")
+    _run(capsys, "--db", db, "add", "The Tiberius project stores facts in PostgreSQL.")
+
+    out = _run(capsys, "--db", db, "contradict", "--threshold", "0.0", "--top", "5")
+    assert out["count"] == 1
+    pair = out["results"][0]
+    assert "tiberius" in pair["shared_entities"]
+    assert {pair["fact_a"]["content"], pair["fact_b"]["content"]} == {
+        "The Tiberius project stores facts in SQLite.",
+        "The Tiberius project stores facts in PostgreSQL.",
+    }
+
+
 def test_cli_list(tmp_path, capsys):
     db = str(tmp_path / "m.db")
     out = _run(capsys, "--db", db, "add", "The deploy pipeline uses Docker on the build host.")

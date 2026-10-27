@@ -5,6 +5,7 @@ Usage (repo dir importable as package ``tiberius``, i.e. its PARENT on PYTHONPAT
   python3 -m tiberius.cli [--db PATH] probe "entity"
   python3 -m tiberius.cli [--db PATH] related "entity"
   python3 -m tiberius.cli [--db PATH] reason "entity" "entity" [...]
+  python3 -m tiberius.cli [--db PATH] contradict [--category C] [--threshold T] [--top N]
   python3 -m tiberius.cli [--db PATH] add "fact content" [--category C] [--tags a,b]
   python3 -m tiberius.cli [--db PATH] feedback <fact_id> helpful|unhelpful
   python3 -m tiberius.cli [--db PATH] remove <fact_id>
@@ -54,6 +55,10 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("reason", help="compositional: facts linked to ALL entities")
     s.add_argument("entities", nargs="+")
     s.add_argument("--top", type=int, default=5)
+    s = sub.add_parser("contradict", help="pairs of entity-sharing facts in tension (store hygiene scan)")
+    s.add_argument("--category")
+    s.add_argument("--threshold", type=float, default=0.3)
+    s.add_argument("--top", type=int, default=10)
     s = sub.add_parser("add", help="store one fact (entities extracted automatically)")
     s.add_argument("content")
     s.add_argument("--category", default="general")
@@ -70,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("extract", help="regex-extract facts from a JSON message list on stdin")
 
     a = p.parse_args(argv)
-    if a.cmd in ("search", "reason", "list"):
+    if a.cmd in ("search", "reason", "contradict", "list"):
         a.top = max(1, a.top)  # SQLite LIMIT -1 means unlimited — a negative --top must not dump the store
     store = MemoryStore(db_path=_db_path(a))
     try:
@@ -83,6 +88,8 @@ def main(argv: list[str] | None = None) -> int:
             rows = ret.related(a.entity, limit=10)
         elif a.cmd == "reason":
             rows = ret.reason(a.entities, limit=a.top)
+        elif a.cmd == "contradict":
+            rows = ret.contradict(category=a.category, threshold=a.threshold, limit=a.top)
         elif a.cmd == "add":
             print(json.dumps({"fact_id": store.add_fact(a.content, category=a.category, tags=a.tags)}))
             return 0
