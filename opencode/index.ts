@@ -219,8 +219,12 @@ export default Plugin.define({
     // Cost: ~one engine start (100-300ms locally) on the first model call per
     // session. Errors stay swallowed: memory must never break model dispatch.
     ctx.session.hook("context", async (event) => {
+      // The LAST user message. event.messages is chronological and
+      // provider-shaped ({ role, content: [...] }); a compacted session leads
+      // with its summary block AS a user message, so .reverse() would pick the
+      // summary instead of the current question (latent in the original
+      // one-shot code, where first == last on a session's first dispatch).
       const lastUser = [...event.messages]
-        .reverse()
         .filter((m: any) => (m?.role ?? m?.type) === "user")
         .map(messageText)
         .filter(Boolean)

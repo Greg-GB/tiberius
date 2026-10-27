@@ -251,8 +251,9 @@ end-to-end. Verified payload shapes (these were the untested assumptions):
   `injected` set); subsequent turns rely on tools. With `injectPerTurn`,
   every **new** user message is searched (per-session `lastSearched` — later
   model calls in the same turn skip the engine) and only facts not yet
-  injected into the session are pushed (over-fetch top-10, inject ≤3). Two
-  live-verified constraints:
+  injected into the session are pushed (over-fetch top-10, inject ≤3).
+  Live-verified 2026-10-27 (per-turn injection observed end-to-end, including
+  the counter side effect). Three live-verified constraints:
   - `event.messages` is **provider-shaped**: `{ id, role, content:
     [{ type: "text", text }], metadata }` — *not* the API's `{ type, text }`
     shape that `ctx.session.context()` returns. Filter `role === "user"`,
@@ -260,6 +261,11 @@ end-to-end. Verified payload shapes (these were the untested assumptions):
   - `event.system` is snapshotted when the hook's promise settles, so the
     search must be **awaited** inside the hook; fire-and-forget lands after
     dispatch (~130ms for a local Python start) and silently injects nothing.
+  - `event.messages` is chronological — the **last** user message is last.
+    A compacted session leads with its summary block *as* a user message, so
+    `reverse()` + `pop()` picks the summary, not the current question
+    (latent in the original one-shot code, where first == last on a session's
+    first dispatch).
 - `event` hook: on `session.execution.succeeded` (name confirmed), the
   session id is at **`event.data.sessionID`** — the event envelope is
   `{ id, created, type, durable, data }` (there is no `properties` key).
@@ -365,6 +371,6 @@ the release workflow publishes on `vX.Y.Z` tags.
   maintenance flow wants it agent-accessible.
 - `related()` hop filter is N SELECTs (ponytail: fine for current set sizes).
 - OpenCode context injection is once per session by default; `injectPerTurn`
-  re-queries each new user message (opt-in — not yet observed live).
+  re-queries each new user message (opt-in, live-verified 2026-10-27).
 - `update_fact` cannot clear a field to NULL (sentinel is None); pass `""`
   for tags to clear.
