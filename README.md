@@ -13,6 +13,15 @@ Tiberius is a fork of [hermes-plugin-holographic](https://github.com/NousResearc
 in-process under Hermes, and over a local CLI under OpenCode (and any other harness). See
 [What's changed](#whats-changed-vs-upstream).
 
+## A note on provenance
+
+Tiberius was developed alongside a local LLM (an AI coding agent) and human
+review. The whole codebase is ~1,500 lines across six files — small enough
+to read in one sitting — and every push is gated in CI by a 32-test core
+suite, 9 plugin unit tests, and an 18-query golden recall eval. But it will
+store **your personal memory**: read the code and verify the parts you rely
+on before you trust it with your data.
+
 ## Why this exists
 
 - **Completely local.** Everything lives in one SQLite file on your machine. No network calls,
@@ -81,8 +90,10 @@ Files:
 - **Harness adapters**: `provider.py` (Hermes, in-process), `cli.py` (generic JSON CLI),
   `opencode/` (native OpenCode V2 plugin with per-session context injection and session-end
   extraction).
-- **Quality gates**: 54 tests + an 18-query golden recall eval (`eval/`) that any retrieval
-  change must not regress (fixture baseline recall@1 18/18, recall@3 18/18).
+- **Quality gates**: a 32-test core suite, 9 plugin unit tests, Hermes-provider
+  tests (need a Hermes environment), and an 18-query golden recall eval (`eval/`)
+  that any retrieval change must not regress (fixture baseline recall@1 18/18,
+  recall@3 18/18).
 
 ## Prerequisites
 
@@ -151,8 +162,12 @@ nothing to install or provision. Where it lives:
 | Hermes | `$HERMES_HOME/tiberius_store.db` | `plugins.tiberius.db_path` in `config.yaml` |
 | OpenCode | `~/.tiberius/memory.db` | `options.db` in `opencode.json` |
 
-To move your memory, move the file. To inspect it, use any SQL tool — no
-`sqlite3` CLI needed; Python's stdlib (a requirement anyway) does it.
+To move your memory, move the file. To back it up, use SQLite's backup API
+(`sqlite3 source.db ".backup dest.db"`, or Python's `sqlite3` `backup()`
+method) or copy while the agent is idle — a plain file copy of a live
+WAL-mode DB can miss the most recent writes. To inspect it, use any SQL
+tool — no `sqlite3` CLI needed; Python's stdlib (a requirement anyway) does
+it.
 Node.js users: the file is plain SQLite in WAL mode — open it directly
 (e.g. with `better-sqlite3`, read-only) for standard SQL and FTS5 queries;
 full retrieval quality (HRR reranking) lives in the Python CLI.
@@ -187,6 +202,18 @@ python3 -c "import sqlite3; print(sqlite3.sqlite_version)"
 # optional: HRR reranking (the engine degrades to keyword mode without it)
 pip install numpy
 ```
+
+Smoke-test the engine directly before wiring the plugin (the repo's parent
+must be on `PYTHONPATH` — the same requirement the `pythonpath` option
+handles):
+
+```bash
+PYTHONPATH=/opt python3 -m tiberius.cli --db /opt/tiberius/memory.db add "tiberius smoke test"
+PYTHONPATH=/opt python3 -m tiberius.cli --db /opt/tiberius/memory.db search "smoke"
+```
+
+Both print JSON; the search should find the fact you just added. Remove it
+again with `remove <fact_id>` when you're done.
 
 Then add a plugin entry to OpenCode's config — either the global
 `~/.config/opencode/opencode.json` or a project-level `opencode.json` next to
@@ -256,7 +283,7 @@ python process holding the DB write-lock.
 ### Development
 
 ```bash
-cd opencode && npm ci && npm run typecheck
+cd opencode && npm ci && npm run typecheck && npm test
 ```
 
 To uninstall: remove the `plugins` entry. The database file stays where it is.
@@ -290,7 +317,8 @@ skills directory (or referencing it from your agent instructions).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) — the one rule that matters: retrieval
 changes must not regress the golden eval (fixture baseline recall@1 18/18, recall@3 18/18).
-AI coding agents: [AGENTS.md](AGENTS.md).
+AI coding agents: [AGENTS.md](AGENTS.md). Security policy and what counts as a
+vulnerability in a local-memory project: [SECURITY.md](SECURITY.md).
 
 ## Development
 
