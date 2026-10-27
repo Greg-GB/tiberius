@@ -27,7 +27,7 @@ Any change touching `retrieval.py`, `store.py`, or `holographic.py` must run
 the golden-query eval before and after and must not regress recall:
 
 ```bash
-python eval/run_eval.py            # synthetic fixture; baseline: recall@1 18/18, recall@3 18/18
+python eval/run_eval.py            # synthetic fixture; baseline: recall@1 19/19, recall@3 19/19
 ```
 
 Report the before/after numbers in the PR. If a change *is meant* to move the

@@ -6,7 +6,7 @@ the rules below). The invariants that actually matter:
 
 1. **Golden eval is the gate.** Any change to `store.py`, `retrieval.py`, or
    `holographic.py` must run `python eval/run_eval.py` before and after and
-   must not regress recall (fixture baseline: 18/18 @1, 18/18 @3). If a change is
+   must not regress recall (fixture baseline: 19/19 @1, 19/19 @3). If a change is
    meant to move the numbers, update the PR with before/after and, if the
    change is intentional, update `eval/golden.json` in the same commit.
 2. **Core stays harness-free.** `store.py` / `retrieval.py` / `holographic.py`
