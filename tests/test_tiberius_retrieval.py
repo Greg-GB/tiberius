@@ -182,3 +182,29 @@ def test_probe_ranks_entity_linked_fact_above_longer_unrelated(tmp_path):
         assert r[0]["fact_id"] == store._one("SELECT MAX(fact_id) AS m FROM facts WHERE content LIKE '%Acme%'")["m"]
     finally:
         store.close()
+
+
+def test_recall_counts_retrievals_exactly_once(tmp_path):
+    """retrieval_count is the usage signal: each public recall increments it exactly once per
+    returned fact — the keyword path via search(), the vector paths via _recorded, and the
+    unlinked-entity fallback through the public search (no path double-counts)."""
+    pytest.importorskip("numpy")
+    path = tmp_path / "tiberius_store.db"
+    store = MemoryStore(path, hrr_dim=128)
+    store.add_fact("Acme Corp uses PostgreSQL for the billing service")
+    fid = store._one("SELECT MAX(fact_id) AS m FROM facts")["m"]
+    try:
+        def count():
+            return store._one("SELECT retrieval_count FROM facts WHERE fact_id = ?", (fid,))["retrieval_count"]
+
+        r = FactRetriever(store).search("PostgreSQL billing service", limit=5)
+        assert r and r[0]["fact_id"] == fid
+        assert count() == 1
+        FactRetriever(store).probe("Acme Corp", limit=5)  # vector path: entity linked at add time
+        assert count() == 2
+        FactRetriever(store).related("Acme Corp", limit=5)  # vector path, own facts
+        assert count() == 3
+        FactRetriever(store).probe("billing service", limit=5)  # unlinked entity -> keyword fallback via search()
+        assert count() == 4
+    finally:
+        store.close()

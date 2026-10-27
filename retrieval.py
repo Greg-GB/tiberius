@@ -64,6 +64,11 @@ class FactRetriever:
         return row["name"] if row else name
 
     def search(self, query: str, category: str | None = None, min_trust: float = 0.3, limit: int = 10) -> list[dict]:
+        """Public keyword search: _search plus retrieval recording. probe/related/reason fallbacks
+        call _search directly so each recall counts its returned facts exactly once."""
+        return self._recorded(self._search(query, category, min_trust, limit))
+
+    def _search(self, query: str, category: str | None = None, min_trust: float = 0.3, limit: int = 10) -> list[dict]:
         with self.store._lock:  # retriever reads must not interleave with a store writer on the shared connection
             """FTS5 candidates (limit*3) → Jaccard + HRR rerank → trust weighting → optional temporal decay
             0.5^(age_days / half_life). Returns fact dicts with 'score', sorted desc."""
@@ -92,6 +97,20 @@ class FactRetriever:
             for fact in results:
                 fact.pop("hrr_vector", None)  # callers expect JSON-serializable dicts
             return results
+
+    def _recorded(self, results: list) -> list:
+        """Record returned facts as retrievals (retrieval_count) and pass them through unchanged."""
+        self._record_retrievals(results)
+        return results
+
+    def _record_retrievals(self, facts: list) -> None:
+        """Count the facts a recall surfaced, one batched UPDATE per call. retrieval_count is the
+        usage signal — which facts the agent actually pulls (input to any future trust/decay tuning)."""
+        if not facts:
+            return
+        self.store._write(
+            "UPDATE facts SET retrieval_count = retrieval_count + 1 WHERE fact_id IN ({})".format(",".join("?" * len(facts))),
+            [f["fact_id"] for f in facts])
 
     def _entity_fact_ids(self, entity: str, category: str | None) -> set:
         """Fact IDs structurally linked to an entity name (case-insensitive), optionally within a category."""
@@ -134,7 +153,7 @@ class FactRetriever:
             if not rows:
                 return self.search(entity, category=category, limit=limit)
             ctx = self._ctx_bundle(rows)
-            return self._rank_by_ctx(rows, ctx, limit)
+            return self._recorded(self._rank_by_ctx(rows, ctx, limit))
 
     def related(self, entity: str, category: str | None = None, limit: int = 10) -> list[dict]:
         """Facts structurally connected to an entity: its own facts plus 1-hop neighbors (facts sharing any
@@ -159,7 +178,7 @@ class FactRetriever:
                     "SELECT 1 FROM facts WHERE fact_id = ? AND category = ?", (fid, category)).fetchone()}
             rows = own + (self._rows_by_ids(hop_ids, category) if hop_ids else [])
             ctx = self._ctx_bundle(own)  # centrality to the entity's own facts, not the neighborhood
-            return self._rank_by_vector(rows, lambda _f, v: hrr.similarity(v, ctx) if ctx is not None else 0.0, limit)
+            return self._recorded(self._rank_by_vector(rows, lambda _f, v: hrr.similarity(v, ctx) if ctx is not None else 0.0, limit))
 
     def reason(self, entities: list[str], category: str | None = None, limit: int = 10) -> list[dict]:
         """Multi-entity compositional query (entity-graph JOIN): facts linked to ALL entities, ranked by
@@ -172,7 +191,7 @@ class FactRetriever:
                 return self.search(" ".join(entities), category=category, limit=limit)
             rows = self._rows_by_ids(ids, category)
             ctx = self._ctx_bundle(rows)
-            return self._rank_by_vector(rows, lambda _f, v: hrr.similarity(v, ctx) if ctx is not None else 0.0, limit)
+            return self._recorded(self._rank_by_vector(rows, lambda _f, v: hrr.similarity(v, ctx) if ctx is not None else 0.0, limit))
 
     def _rank_by_ctx(self, rows: list, ctx, limit: int) -> list[dict]:
         return self._rank_by_vector(rows, lambda _f, v: hrr.similarity(v, ctx) if ctx is not None else 0.0, limit)

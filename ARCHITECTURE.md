@@ -25,8 +25,10 @@ other way around.
 Five tables (`store.py:_SCHEMA`, idempotent `IF NOT EXISTS`):
 
 - **facts** — `content TEXT UNIQUE NOT NULL`, `category`, `tags`, `trust_score`
-  (default 0.5), `hrr_vector BLOB`, timestamps. The unique content column is
-  the dedupe key: `add_fact` returns the existing id instead of duplicating.
+  (default 0.5), `retrieval_count` (incremented once per recall call that
+  returns the fact — usage signal), `hrr_vector BLOB`, timestamps. The unique
+  content column is the dedupe key: `add_fact` returns the existing id
+  instead of duplicating.
 - **entities** — `name` (identity is case-insensitive: lookups use
   `COLLATE NOCASE`), comma-joined `aliases` (written only by AKA clauses).
 - **fact_entities** — the fact↔entity join; the *source of truth* for
@@ -140,7 +142,11 @@ backfilled on open
 ## Retrieval flows (`retrieval.py`)
 
 All methods: canonicalize (probe/related/reason) → SQL → rank; results are
-plain dicts with `hrr_vector` dropped (BLOBs never leak to callers).
+plain dicts with `hrr_vector` dropped (BLOBs never leak to callers). Every
+public recall counts its returned facts in `retrieval_count` exactly once per
+call: the keyword core is the unrecording `_search`, the public `search` and
+the `_recorded`-wrapped vector paths each record once, and the
+probe/related/reason fallbacks route through the public `search`.
 
 **`search(q, category, min_trust, limit)`** — keyword pipeline:
 1. `_sanitize_fts_query` quotes tokens and joins with ` OR ` (any token may
