@@ -34,7 +34,9 @@ FACT_STORE_SCHEMA = {
         "• probe — Entity recall: ALL facts about a person/thing.\n• related — What connects to an entity? Structural adjacency.\n"
         "• reason — Compositional: facts connected to MULTIPLE entities simultaneously.\n"
         "• contradict — Memory hygiene: find facts making conflicting claims.\n• update/remove/list — CRUD operations.\n\n"
-        "IMPORTANT: Before answering questions about the user, ALWAYS probe or reason first."
+        "IMPORTANT: Before answering anything about the user, the environment, or the project, "
+        "ALWAYS recall first (probe for entities, search for topics, reason across both) — "
+        "stored facts may not be in conversation context."
     ),
     "parameters": {
         "type": "object",

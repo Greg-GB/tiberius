@@ -16,6 +16,11 @@ projects, and tools. Nothing leaves the machine.
   `db path` — not full sentences.
 - **Reason** across multiple entities only when the question genuinely spans
   two or more (`what touches X and Y`).
+- **Environment questions are prime recall targets** — "how do I do X here?".
+  Tool and permission constraints live only in the store, not in a fresh
+  session's context.
+- **When in doubt, search**: one local call (~200ms). A miss is cheaper than
+  an answer that contradicts a stored decision.
 - If recall returns nothing relevant, answer normally. Do not loop on
   rephrasings — one retry at most.
 
