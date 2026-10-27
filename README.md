@@ -17,8 +17,8 @@ in-process under Hermes, and over a local CLI under OpenCode (and any other harn
 
 Tiberius was developed alongside a local LLM (an AI coding agent) and human
 review. The whole codebase is ~1,500 lines across six files — small enough
-to read in one sitting — and every push is gated in CI by a 32-test core
-suite, 9 plugin unit tests, and an 18-query golden recall eval. But it will
+to read in one sitting — and every push is gated in CI by a 35-test core
+suite, 10 plugin unit tests, and an 18-query golden recall eval. But it will
 store **your personal memory**: read the code and verify the parts you rely
 on before you trust it with your data.
 
@@ -90,7 +90,7 @@ Files:
 - **Harness adapters**: `provider.py` (Hermes, in-process), `cli.py` (generic JSON CLI),
   `opencode/` (native OpenCode V2 plugin with per-session context injection and session-end
   extraction).
-- **Quality gates**: a 32-test core suite, 9 plugin unit tests, Hermes-provider
+- **Quality gates**: a 35-test core suite, 10 plugin unit tests, Hermes-provider
   tests (need a Hermes environment), and an 18-query golden recall eval (`eval/`)
   that any retrieval change must not regress (fixture baseline recall@1 18/18,
   recall@3 18/18).
@@ -318,6 +318,7 @@ python3 -m tiberius.cli --db PATH reason "a" "b"
 python3 -m tiberius.cli --db PATH add "fact" [--category C] [--tags a,b]
 python3 -m tiberius.cli --db PATH feedback <id> helpful|unhelpful
 python3 -m tiberius.cli --db PATH remove <id>
+python3 -m tiberius.cli --db PATH list [--category C] [--min-trust T] [--top N]
 echo '[{"role":"user","content":"..."}]' | python3 -m tiberius.cli --db PATH extract
 ```
 
