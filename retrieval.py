@@ -75,7 +75,7 @@ class FactRetriever:
         pipeline at min_trust=0.0 (a low-trust near-duplicate is exactly the junk to surface);
         ranking is raw token Jaccard, not search's trust-weighted score, so trust cannot hide a
         near-identical row. Calls _search (not search) so the check doesn't inflate retrieval_count.
-        ponytail: candidate pool is the FTS top-5 — a near-duplicate buried past rank 5 is missed;
+        candidate pool is the FTS top-5 — a near-duplicate buried past rank 5 is missed;
         widen the pool or scan all facts if misses become measurable."""
         query_tokens = self._tokenize(content)
         out = []
@@ -163,7 +163,7 @@ class FactRetriever:
 
     def _ctx_bundle(self, rows: list):
         """Content context of a fact set: bundle of the decodable fact vectors (None if none)."""
-        # ponytail: re-decodes each blob (once for ctx, again in _rank_by_vector); cache if this shows in a profile
+        # re-decodes each blob (once for ctx, again in _rank_by_vector); cache if this shows in a profile
         vecs = [self._phases(r["hrr_vector"]) for r in rows]
         vecs = [v for v in vecs if v is not None]
         return hrr.bundle(*vecs) if vecs else None
@@ -293,7 +293,7 @@ class FactRetriever:
         case-insensitive, word-boundary), so a query that names an entity by one name also
         matches facts that mention only the other ("KVStore ..." reaches a fact that says only
         "Redis ..."). Candidate generation only — Jaccard/HRR still score the original query.
-        ponytail: full entity scan per search — fine at single-user store sizes (dozens of
+        full entity scan per search — fine at single-user store sizes (dozens of
         entities, one small SELECT); widen to an index/limit if that ever shows in a profile."""
         q = query.lower()
         extra: list[str] = []

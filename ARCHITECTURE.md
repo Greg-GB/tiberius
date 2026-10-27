@@ -8,7 +8,7 @@ AGENTS.md lists the hard invariants; this file explains them.
 
 | Module | Role | Depends on |
 |---|---|---|
-| `holographic.py` | HRR math: phase-encoded vectors, bind/unbind/bundle, blob (de)serialization | numpy (numpy) |
+| `holographic.py` | HRR math: phase-encoded vectors, bind/unbind/bundle, blob (de)serialization | numpy (optional) |
 | `store.py` | SQLite schema, `MemoryStore` (shared connection), entity extraction/resolution, `extract_statements` | stdlib only |
 | `retrieval.py` | `FactRetriever`: search / probe / related / reason / contradict | store, holographic |
 | `provider.py` | Hermes `MemoryProvider` adapter (in-process) | Hermes core + all of the above |
@@ -122,7 +122,7 @@ The one exception is noted in `search()`'s docstring and the probe docstring.
 
 The one sanctioned soft use: `search()` unbinds `ROLE_CONTENT` from the fact
 vector and scores the *approximate* content projection against the query —
-a ranking heuristic, not an exact decomposition. It works (golden 18/18)
+a ranking heuristic, not an exact decomposition. It works (golden 19/19)
 because the content term dominates the bundle; don't generalize this to
 multi-term extraction.
 
@@ -180,8 +180,8 @@ rule got earned.)
 
 **`related(entity)`** — the entity's own facts ∪ one hop (facts sharing any
 of the entity's other linked facts' entities) → same centrality ranking.
-Category filter applies per candidate (N small SELECTs — ponytail: fine for
-set sizes here).
+Category filter applies per candidate (N small SELECTs — fine for set sizes
+here).
 
 **`reason(entities)`** — intersection of the per-entity fact-id sets
 (compositional semantics via SQL, per the bundle rule) → bundle the
@@ -316,7 +316,7 @@ the untested assumptions):
   as a positional query.
 - Config: `opencode.json` `plugins` entry — `{ "package":
   "file:///…/opencode", "options": { "db", "engine", "pythonpath",
-  "injectTop" } }` (all optional; defaults match the CLI). Local plugin
+  "injectTop", "injectPerTurn" } }` (all optional; defaults match the CLI). Local plugin
   directories under `~/.config/opencode/plugins/` are auto-discovered and
   hot-reloaded on file change.
 
@@ -329,11 +329,11 @@ the untested assumptions):
 - **Provider** (remaining files): import Hermes core; only run in a Hermes
   environment. Cover save_config, profile db-path handling, shutdown,
   auto-extract, and the lock rule.
-- **Golden eval** (`eval/run_eval.py`): 18 synthetic queries
+- **Golden eval** (`eval/run_eval.py`): 19 synthetic queries
   (`eval/golden.json`) over the committed synthetic fixture
   (`eval/fixture.json`, fictional 'Acme stack' — this repo is public and
-  must never contain real user memory). Baseline: recall@1 18/18,
-  recall@3 18/18. Run `python eval/run_eval.py` (fixture) or pass a DB
+  must never contain real user memory). Baseline: recall@1 19/19,
+  recall@3 19/19. Run `python eval/run_eval.py` (fixture) or pass a DB
   path for a live store (backed up via SQLite's backup API, never mutated).
   **A retrieval change that
   moves these numbers is a regression until proven otherwise.**
@@ -373,7 +373,7 @@ the release workflow publishes on `vX.Y.Z` tags.
    deleted). A Hermes deployment that installs the plugin into a gateway
    copy still needs a re-sync + gateway restart after a push.
 10. **The OpenCode plugin is runtime-verified on OpenCode 2.0.28**
-    (2026-10-26): all six tools, context injection, and event-driven
+    (2026-10-26): all nine tools, context injection, and event-driven
     extraction were observed working end-to-end; the verified payload
     shapes are documented in the adapter section above. The first
     deployment attempt shipped four silent failures (wrong `messages`
@@ -402,6 +402,6 @@ the release workflow publishes on `vX.Y.Z` tags.
   `_ctx_bundle`.
 - `contradict` not in OpenCode (CLI only) — add as a plugin tool if a
   maintenance flow wants it agent-accessible.
-- `related()` hop filter is N SELECTs (ponytail: fine for current set sizes).
+- `related()` hop filter is N SELECTs — fine for current set sizes.
 - `update_fact` cannot clear a field to NULL (sentinel is None); pass `""`
   for tags to clear.

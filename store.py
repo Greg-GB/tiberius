@@ -86,7 +86,7 @@ _RE_QUOTED = (re.compile(r'"([^"]+)"'), re.compile(r"'([^']+)'"))
 # Common English words that get capitalized (sentence starts, pronouns, auxiliaries, frequent verbs):
 # a single-word candidate in this set is not a proper noun, and a multi-word candidate STARTING with one
 # of these is sentence-initial junk ("In The", "We Decided"). Quoted terms skip the filter (explicit intent).
-# ponytail: static list — an LLM entity pass is the upgrade path if junk entities become measurable (backlog).
+# static list — an LLM entity pass is the upgrade path if junk entities become measurable (backlog).
 _ENTITY_STOPWORDS = frozenset("""
     i you he she it we they me him her us them my your his its our their this that these those then there
     here now also just only very really still already because before after while when where which who what
