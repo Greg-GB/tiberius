@@ -14,7 +14,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { callEngine, freshUserMsgs, messageText, runEngine } from "../index.ts";
+import { callEngine, freshInjectionFacts, freshUserMsgs, messageText, runEngine } from "../index.ts";
 
 const tmp = mkdtempSync(join(tmpdir(), "tiberius-plugin-test-"));
 
@@ -97,4 +97,18 @@ test("freshUserMsgs returns only unseen and id-less messages (extract delta)", (
   assert.equal(out.length, 2);
   assert.equal(out[0].id, "b");
   assert.equal(out[1].text, "id-less"); // id-less messages can't be tracked — always fresh
+});
+
+test("freshInjectionFacts filters already-shown facts and caps the turn", () => {
+  const seen = new Set<number>([1, 2]);
+  const out = freshInjectionFacts(
+    [{ fact_id: 1 }, { fact_id: 3 }, { fact_id: 4 }, { fact_id: 5 }],
+    seen,
+    2,
+  );
+  assert.deepEqual(out.map((f) => f.fact_id), [3, 4]); // 1,2 already shown; cap of 2 drops 5
+});
+
+test("freshInjectionFacts is empty when every result was already shown", () => {
+  assert.deepEqual(freshInjectionFacts([{ fact_id: 1 }], new Set([1]), 3), []);
 });

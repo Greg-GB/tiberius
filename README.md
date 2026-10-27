@@ -20,7 +20,7 @@ See [What's changed](#whats-changed-vs-upstream).
 Tiberius was developed alongside a local LLM (an AI coding agent) and human
 review. The whole codebase is ~1,500 lines across six files — small enough
 to read in one sitting — and every push is gated in CI by a 36-test core
-suite, 10 plugin unit tests, and an 18-query golden recall eval. But it will
+suite, 12 plugin unit tests, and an 18-query golden recall eval. But it will
 store **your personal memory**: read the code and verify the parts you rely
 on before you trust it with your data.
 
@@ -92,7 +92,7 @@ Files:
 - **Harness adapters**: `provider.py` (Hermes, in-process), `cli.py` (generic JSON CLI),
   `opencode/` (native OpenCode V2 plugin with per-session context injection and session-end
   extraction).
-- **Quality gates**: a 36-test core suite, 10 plugin unit tests, Hermes-provider
+- **Quality gates**: a 36-test core suite, 12 plugin unit tests, Hermes-provider
   tests (need a Hermes environment), and an 18-query golden recall eval (`eval/`)
   that any retrieval change must not regress (fixture baseline recall@1 18/18,
   recall@3 18/18).
@@ -254,6 +254,7 @@ restart.
 | `engine` | `["python3", "-m", "tiberius.cli"]` | argv used to launch the engine |
 | `pythonpath` | inherited from the environment | `PYTHONPATH` for the engine; set it to the repo parent so `python3 -m tiberius.cli` resolves |
 | `injectTop` | `4` | facts injected into the system prompt at session start |
+| `injectPerTurn` | `false` | per-turn injection: each new user message is searched and newly relevant facts (up to 3 per turn, deduped per session) are injected |
 
 ### What the agent gets
 
@@ -262,7 +263,10 @@ restart.
   surface as the Hermes provider.
 - **Context injection**: on the session's first model call, the top
   `injectTop` facts relevant to the latest user message are appended to the
-  system prompt; later turns rely on the tools.
+  system prompt; later turns rely on the tools. With `injectPerTurn: true`,
+  every new user message is searched and newly relevant facts (up to 3 per
+  turn, deduped per session) are injected — recall that does not depend on
+  the agent remembering to call the tools.
 - **Session-end extraction**: when an execution succeeds (or is interrupted),
   statements like "I prefer X" / "the project uses Y" are regex-extracted from
   the user's messages. Idempotent — facts dedupe on exact content, so

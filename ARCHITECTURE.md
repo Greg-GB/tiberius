@@ -246,10 +246,13 @@ end-to-end. Verified payload shapes (these were the untested assumptions):
 
 - 6 tools mirroring the Hermes surface: `memory_search` / `memory_probe` /
   `memory_related` / `memory_reason` / `memory_add` / `memory_feedback`.
-- `context` hook: on the **first** model call per session (tracked in an
-  `injected` set), searches the last user message text and pushes top facts
-  into the system prompt. One-shot per session; subsequent turns rely on
-  tools. Two live-verified constraints:
+- `context` hook: searches the last user message text and pushes top facts
+  into the system prompt. Default: one-shot per session (tracked in an
+  `injected` set); subsequent turns rely on tools. With `injectPerTurn`,
+  every **new** user message is searched (per-session `lastSearched` — later
+  model calls in the same turn skip the engine) and only facts not yet
+  injected into the session are pushed (over-fetch top-10, inject ≤3). Two
+  live-verified constraints:
   - `event.messages` is **provider-shaped**: `{ id, role, content:
     [{ type: "text", text }], metadata }` — *not* the API's `{ type, text }`
     shape that `ctx.session.context()` returns. Filter `role === "user"`,
@@ -358,10 +361,10 @@ the release workflow publishes on `vX.Y.Z` tags.
   per-category bank bundling it guarded was removed with the write path. If
   on-the-fly ctx bundles over large fact sets start degrading, wire it into
   `_ctx_bundle`.
-- `contradict` not in CLI/OpenCode — add when hygiene is needed from
-  another harness.
+- `contradict` not in OpenCode (CLI only) — add as a plugin tool if a
+  maintenance flow wants it agent-accessible.
 - `related()` hop filter is N SELECTs (ponytail: fine for current set sizes).
-- OpenCode context injection is once per session; mid-session fact changes
-  only reach the model via tools.
+- OpenCode context injection is once per session by default; `injectPerTurn`
+  re-queries each new user message (opt-in — not yet observed live).
 - `update_fact` cannot clear a field to NULL (sentinel is None); pass `""`
   for tags to clear.

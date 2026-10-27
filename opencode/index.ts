@@ -19,16 +19,23 @@
  *               the container's PYTHONPATH; set it to the repo parent so
  *               `python3 -m tiberius.cli` resolves)
  *   injectTop   facts injected into the system prompt at session start (default 4)
+ *   injectPerTurn  per-turn injection: each new user message is searched and
+ *               newly relevant facts are injected, deduped per session
+ *               (default false — one-shot session-start injection)
  *
  * What it does:
  *   - tools: memory_search / memory_probe / memory_related / memory_reason / memory_add / memory_feedback
  *     (same operation surface as the Hermes provider — see skills/tiberius-usage/SKILL.md)
- *   - context hook: first model call per session pushes top relevant facts into the system prompt
+ *   - context hook: first model call per session pushes top relevant facts into
+ *     the system prompt; with injectPerTurn, every new user message is searched
+ *     and only not-yet-shown facts are injected — recall that does not depend
+ *     on the agent remembering to call the tools
  *   - event: on session.execution.succeeded, regex-extracts statements from user messages
  *
- * ponytail: one-shot context injection per session (memory added mid-session shows up in the
- * next session); upgrade = re-query per agent step. Memory must never break model dispatch —
- * every engine call is caught and swallowed.
+ * ponytail: default context injection is one-shot per session (memory added
+ * mid-session shows up in the next session); injectPerTurn re-queries each new
+ * user message. Memory must never break model dispatch — every engine call is
+ * caught and swallowed.
  */
 import { execFile, type ChildProcess } from "node:child_process";
 import { Plugin } from "@opencode/plugin";
@@ -38,6 +45,7 @@ type Options = {
   engine?: string[];
   pythonpath?: string;
   injectTop?: number;
+  injectPerTurn?: boolean;
 };
 
 type EngineResult = { results?: { fact_id: number; content: string; category?: string; trust_score?: number }[]; [k: string]: unknown; error?: string };
@@ -113,6 +121,13 @@ export function freshUserMsgs(userMsgs: any[], seen: Set<string>): any[] {
   return userMsgs.filter((m) => typeof m.id !== "string" || !seen.has(m.id));
 }
 
+// Per-turn injection dedupe: facts already shown to this session are not
+// re-pushed, and at most `cap` new facts go in per turn (keeps the system
+// prompt lean).
+export function freshInjectionFacts<T extends { fact_id: number }>(results: T[], seen: Set<number>, cap: number): T[] {
+  return results.filter((f) => !seen.has(f.fact_id)).slice(0, cap);
+}
+
 export default Plugin.define({
   id: "tiberius-memory",
   async setup(ctx) {
@@ -126,12 +141,19 @@ export default Plugin.define({
     // A hot-reload loses this map and re-extracts a session's history once —
     // idempotent under UNIQUE(content).
     const extractedUserMsgs = new Map<string, Set<string>>();
+    // Per-turn injection state (only used when injectPerTurn): the last user
+    // message text searched per session (model calls within the same turn
+    // re-dispatch the same messages — no engine call needed) and the
+    // fact_ids already injected per session (each turn injects only what is
+    // new to that turn).
+    const lastSearched = new Map<string, string>();
+    const injectedFacts = new Map<string, Set<number>>();
 
     // --- tools ---------------------------------------------------------------
     ctx.tool.transform((e) => {
       e.add({
         name: "memory_search",
-        description: "Search long-term local memory (facts about the user, projects, decisions, preferences). Use before asking the user something that might already be known.",
+        description: "Search long-term local memory (facts about the user, the environment, projects, decisions, preferences). Call it before answering anything about the environment, the project, or user preferences, and before starting work a past decision may affect. Conversation context is not a substitute — stored facts may not be in it.",
         input: { type: "object", properties: { query: { type: "string", description: "Keywords for the fact you need" }, top: { type: "integer", description: "Max results (default 5)" } }, required: ["query"] },
         execute: async (input: any) => {
           const r = await callEngine(engine, baseArgs, ["search", String(input.query), "--top", String(input.top ?? 5)], undefined, env);
@@ -197,7 +219,6 @@ export default Plugin.define({
     // Cost: ~one engine start (100-300ms locally) on the first model call per
     // session. Errors stay swallowed: memory must never break model dispatch.
     ctx.session.hook("context", async (event) => {
-      if (injected.has(event.sessionID)) return;
       const lastUser = [...event.messages]
         .reverse()
         .filter((m: any) => (m?.role ?? m?.type) === "user")
@@ -205,12 +226,39 @@ export default Plugin.define({
         .filter(Boolean)
         .pop();
       if (!lastUser) return;
+      const query = lastUser.slice(0, 200);
+      if (opts.injectPerTurn) {
+        // Per-turn: every new user message gets its own search; facts already
+        // shown this session are not re-pushed (each turn injects only what is
+        // new to that turn). Later model calls within the same turn re-dispatch
+        // the same last user message — the lastSearched check skips them, so
+        // the cost is one engine start per turn, not per model call.
+        if (lastSearched.get(event.sessionID) === query) return;
+        // Mark BEFORE the search: if the engine is down, we skip rather than
+        // re-delaying dispatch on every later model call this turn.
+        lastSearched.set(event.sessionID, query);
+        let seen = injectedFacts.get(event.sessionID);
+        if (!seen) {
+          seen = new Set<number>();
+          injectedFacts.set(event.sessionID, seen);
+        }
+        try {
+          const r = await runEngine(engine, baseArgs, ["search", query, "--top", "10"], undefined, env);
+          const fresh = freshInjectionFacts(r?.results ?? [], seen, 3);
+          for (const f of fresh) seen.add(f.fact_id);
+          if (fresh.length) {
+            event.system.push({ type: "text", text: `Relevant stored memory (search with the memory_search tool for more):\n${fresh.map((f) => `- [${f.fact_id}] ${f.content}`).join("\n")}` });
+          }
+        } catch { /* memory must never break model dispatch */ }
+        return;
+      }
+      if (injected.has(event.sessionID)) return;
       // Mark injected BEFORE the search: if the engine is down, we skip
       // rather than retrying (and re-delaying) dispatch on every later model
       // call this session. The trade is one missed injection per outage.
       injected.add(event.sessionID);
       try {
-        const r = await runEngine(engine, baseArgs, ["search", lastUser.slice(0, 200), "--top", String(opts.injectTop ?? 4)], undefined, env);
+        const r = await runEngine(engine, baseArgs, ["search", query, "--top", String(opts.injectTop ?? 4)], undefined, env);
         const facts = (r?.results ?? []).map((f) => `- [${f.fact_id}] ${f.content}`);
         if (facts.length) {
           event.system.push({ type: "text", text: `Relevant stored memory (search with the memory_search tool for more):\n${facts.join("\n")}` });
