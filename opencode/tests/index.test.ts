@@ -14,7 +14,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { callEngine, messageText, runEngine } from "../index.ts";
+import { callEngine, freshUserMsgs, messageText, runEngine } from "../index.ts";
 
 const tmp = mkdtempSync(join(tmpdir(), "tiberius-plugin-test-"));
 
@@ -86,4 +86,15 @@ test("messageText handles the parts shape and rejects garbage", () => {
   assert.equal(messageText({}), "");
   assert.equal(messageText(null), "");
   assert.equal(messageText(undefined), "");
+});
+
+test("freshUserMsgs returns only unseen and id-less messages (extract delta)", () => {
+  const seen = new Set<string>(["a"]);
+  const out = freshUserMsgs(
+    [{ id: "a", text: "seen" }, { id: "b", text: "new" }, { text: "id-less" }],
+    seen,
+  );
+  assert.equal(out.length, 2);
+  assert.equal(out[0].id, "b");
+  assert.equal(out[1].text, "id-less"); // id-less messages can't be tracked — always fresh
 });

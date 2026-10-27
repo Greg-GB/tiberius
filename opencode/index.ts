@@ -108,6 +108,11 @@ export function messageText(m: unknown): string {
   return "";
 }
 
+export function freshUserMsgs(userMsgs: any[], seen: Set<string>): any[] {
+  // Id-less messages can't be tracked, so they stay "fresh" (old behavior).
+  return userMsgs.filter((m) => typeof m.id !== "string" || !seen.has(m.id));
+}
+
 export default Plugin.define({
   id: "tiberius-memory",
   async setup(ctx) {
@@ -116,6 +121,11 @@ export default Plugin.define({
     const baseArgs = opts.db ? ["--db", opts.db] : [];
     const env = opts.pythonpath ? { PYTHONPATH: opts.pythonpath } : undefined; // else: container's baked-in ENV PYTHONPATH
     const injected = new Set<string>();
+    // User-message ids already fed to extract, per session: each turn sends only
+    // the delta, so extract cost stays O(new messages) instead of O(session).
+    // A hot-reload loses this map and re-extracts a session's history once —
+    // idempotent under UNIQUE(content).
+    const extractedUserMsgs = new Map<string, Set<string>>();
 
     // --- tools ---------------------------------------------------------------
     ctx.tool.transform((e) => {
@@ -215,21 +225,29 @@ export default Plugin.define({
       for await (const ev of events as AsyncIterable<any>) {
         const type: string = ev?.type ?? ev?.properties?.type ?? "";
         if (type !== "session.execution.succeeded" && type !== "session.execution.interrupted") continue;
-        // Fires once per completed turn, not once per session. Re-running
-        // extract over the whole session each time is safe: store.add_fact is
-        // idempotent under UNIQUE(content), so duplicates are no-ops.
+        // Fires once per completed turn. Only messages not yet extracted are
+        // sent (per-session id tracking); re-sends after a failed turn are
+        // safe — add_fact dedupes on UNIQUE(content).
         // V2 events wrap the payload in `data` (verified against live
         // OpenCode 2.0.28): { id, created, type, durable, data: { sessionID } }.
         const sessionID: string | undefined = ev?.data?.sessionID ?? ev?.properties?.sessionID ?? ev?.sessionID;
         if (!sessionID) continue;
         try {
           const raw: any[] = await ctx.session.context({ sessionID });
-          const msgs = raw
-            .filter((m) => m?.type === "user" && typeof m.text === "string")
+          const userMsgs = raw.filter((m) => m?.type === "user" && typeof m.text === "string");
+          let seen = extractedUserMsgs.get(sessionID);
+          if (!seen) {
+            seen = new Set<string>();
+            extractedUserMsgs.set(sessionID, seen);
+          }
+          const fresh = freshUserMsgs(userMsgs, seen);
+          const msgs = fresh
             .map((m) => ({ role: "user", content: m.text as string }))
             .filter((m) => m.content.length >= 10);
           if (!msgs.length) continue;
           await runEngine(engine, baseArgs, ["extract"], JSON.stringify(msgs), env);
+          // Mark AFTER the engine call: a failed turn retries its messages next turn.
+          for (const m of fresh) if (typeof m.id === "string") seen.add(m.id);
         } catch { /* best-effort */ }
       }
     })().catch(() => {});
