@@ -223,6 +223,10 @@ python3 -c "import sqlite3; print(sqlite3.sqlite_version)"
 pip install numpy
 ```
 
+Alternative to cloning: `pip install 'hermes-plugin-tiberius @ git+https://github.com/Greg-GB/tiberius'`
+(the distribution name is a Hermes legacy — the importable package is `tiberius`).
+With a pip install the `pythonpath` option below is not needed.
+
 Smoke-test the engine directly before wiring the plugin (the repo's parent
 must be on `PYTHONPATH` — the same requirement the `pythonpath` option
 handles):
@@ -340,6 +344,9 @@ echo '[{"role":"user","content":"..."}]' | python3 -m tiberius.cli --db PATH ext
 ```
 
 DB path: `--db` > `$TIBERIUS_DB` > `~/.tiberius/memory.db`. All output is JSON.
+
+Or skip the PYTHONPATH entirely: `pip install 'hermes-plugin-tiberius @ git+https://github.com/Greg-GB/tiberius'`
+installs the package `tiberius`, and `python3 -m tiberius.cli` works as-is.
 
 ### For agents
 
