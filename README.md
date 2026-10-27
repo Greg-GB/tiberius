@@ -10,8 +10,10 @@ HRR-based compositional retrieval. Harness-agnostic core with one adapter per ha
 
 Tiberius is a fork of [hermes-plugin-holographic](https://github.com/NousResearch/hermes-plugin-holographic)
 (Nous Research, MIT) — the HRR core is kept, but it is decoupled from a single harness: it runs
-in-process under Hermes, and over a local CLI under OpenCode (and any other harness). See
-[What's changed](#whats-changed-vs-upstream).
+in-process under Hermes, and over a local CLI under OpenCode (and any other harness). The original
+repo is archived; the upstream project continues at
+[itpartypattaya/hermes-plugin-holographic](https://github.com/itpartypattaya/hermes-plugin-holographic).
+See [What's changed](#whats-changed-vs-upstream).
 
 ## A note on provenance
 
