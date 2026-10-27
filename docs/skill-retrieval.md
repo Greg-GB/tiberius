@@ -1,7 +1,9 @@
 # Skill retrieval via Tiberius — design & plan
 
-Status: **Phase 0 complete — GO** (spike results in §6: 76% description-only →
-100% with trigger tags). No feature code yet; Phase 1 awaits approval.
+Status: **Phase 1 complete** (2026-10-27): `skill-sync` CLI implemented as specified
+in §2 + 11 tests — on local branch `skills/retrieval`, **not pushed** (WIP stays
+local until the private dev repo exists). Phase 0 = GO (spike results in §6:
+76% description-only → 100% with trigger tags). Phases 2–4 not started.
 
 Branch: `skills/retrieval` — shared by the OpenCode agent and the Hermes agent.
 See [Shared branch protocol](#8-shared-branch-protocol).
@@ -69,6 +71,18 @@ surface, per the harness-free invariant (AGENTS.md #2).
   appears in any synced dir. Never delete on a partial sync by accident.
 - Idempotent; cheap enough to re-run at every session start (no caching in v1).
 - One command feeds both harnesses from different dir lists.
+- **Implemented (Phase 1, 2026-10-27):** frontmatter is parsed with a stdlib-only
+  subset parser (single-line `key: value` with optional quotes, `>`/`|` block
+  scalars — no YAML dependency); skill name falls back to the directory name when
+  the frontmatter has no `name:`; a skill without a description is reported in
+  `skipped` and the sync continues (best-effort, same discipline as `extract`).
+  Output is the JSON report `{dirs, skills, added, updated, unchanged, pruned,
+  skipped}`. `--prune` only ever touches facts carrying a `skill-id` tag (hand-
+  added skill facts are never deleted); a missing `--dir` is a JSON error (exit 1)
+  so a typo cannot prune the whole catalog; the same id in multiple `--dir`s
+  resolves last-dir-wins. Verified end-to-end against the repo's own
+  `skills/tiberius-usage/SKILL.md`, including the `triggers:` path from §6
+  (a Phase 0 miss query hits once the trigger words are in the frontmatter).
 
 ## 3. OpenCode side
 
@@ -264,7 +278,7 @@ stopword list is a core change and needs the eval gate — deliberately not v1).
 | Phase | Work | Owner | Gate |
 |-------|------|-------|------|
 | 0 | Spike (§6) | OpenCode | recall@5 ≥ 80% |
-| 1 | `skill-sync` CLI subcommand + tests (synthetic fixture skill dirs in tmp_path — fictional-content rule, same as the eval fixture) | OpenCode (shared artifact — write it first; both harnesses depend on it) | Core suite green; idempotency test; golden eval unchanged |
+| 1 | `skill-sync` CLI subcommand + tests (synthetic fixture skill dirs in tmp_path — fictional-content rule, same as the eval fixture) — **done 2026-10-27** | OpenCode (shared artifact — write it first; both harnesses depend on it) | Core suite green (58 passed); idempotency test present; golden eval unchanged (19/19 @1, @3) |
 | 2 | OpenCode plugin: options, both blocks, two tools, feedback detection, tests | OpenCode | Plugin suite green; zero behavior change with options unset |
 | 3 | Hermes provider: prefetch block, config, feedback detection | Hermes (after Q1–Q6 answered) | Provider tests in a Hermes env |
 | 4 | Later: ranking refinements (body head in the retrieval surface, trigger-phrase frontmatter), per-turn feedback events, one shared skill registry across both harnesses | whichever | — |
@@ -277,6 +291,10 @@ discipline still applies to anything retrieval-adjacent.
 
 Branch: `skills/retrieval` (off `main`).
 
+- 2026-10-27: the branch was deleted from the public repo at the user's request
+  and is **local only** until a private dev repo (e.g. `tiberius-dev`) exists.
+  Until then the protocol below reduces to: work on the local branch, commit
+  inside your area, never push.
 - Areas: `cli.py` + `eval/skill_spike/` + this doc = **shared** (OpenCode writes
   first); `opencode/` = OpenCode agent; `provider.py` + Hermes test files =
   Hermes agent.

@@ -10,6 +10,7 @@ Usage (repo dir importable as package ``tiberius``, i.e. its PARENT on PYTHONPAT
   python3 -m tiberius.cli [--db PATH] feedback <fact_id> helpful|unhelpful
   python3 -m tiberius.cli [--db PATH] remove <fact_id>
   python3 -m tiberius.cli [--db PATH] update <fact_id> [--content TEXT] [--tags a,b] [--category C] [--trust-delta T]
+  python3 -m tiberius.cli [--db PATH] skill-sync --dir DIR [--dir DIR ...] [--prune]
   echo '[{"role":"user","content":"..."}]' | python3 -m tiberius.cli [--db PATH] extract
 
 DB path: --db > $TIBERIUS_DB > ~/.tiberius/memory.db. All output is JSON on stdout.
@@ -37,6 +38,140 @@ def _row(r) -> dict:
     d = dict(r) if not isinstance(r, dict) else dict(r)
     d.pop("hrr_vector", None)
     return d
+
+
+def _unquote(value: str) -> str:
+    """Strip one pair of matching surrounding quotes (frontmatter values)."""
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        return value[1:-1]
+    return value
+
+
+def _parse_skill_frontmatter(text: str) -> dict[str, str]:
+    """SKILL.md frontmatter (the ``---``-fenced head) as the YAML subset skills actually
+    use: single-line ``key: value`` with optional surrounding quotes, and ``>``/``|`` block
+    scalars (folded/literal, optional chomping indicator) for multi-line descriptions.
+    Returns {} when there is no (properly closed) frontmatter — callers skip the skill."""
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}
+    fields: dict[str, str] = {}
+    closed = False
+    i = 1
+    while i < len(lines):
+        line = lines[i]
+        if line.strip() in ("---", "..."):  # closing fence
+            closed = True
+            break
+        i += 1
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or line[0] in " \t":
+            continue  # blank, comment, or a line this subset does not model
+        key, sep, value = line.partition(":")
+        if not sep or not key.strip():
+            continue
+        key, value = key.strip(), value.strip()
+        if value in (">", "|", ">-", "|-", ">+", "|+"):
+            block = []
+            while i < len(lines) and (not lines[i].strip() or lines[i][0] in " \t"):
+                block.append(lines[i].strip())
+                i += 1
+            joiner = " " if value.startswith(">") else "\n"  # folded vs literal
+            fields[key] = joiner.join(b for b in block if b).strip()
+            continue
+        fields[key] = _unquote(value)
+    return fields if closed else {}
+
+
+def _parse_triggers(raw: str) -> list[str]:
+    """Optional ``triggers:`` frontmatter value -> tag list. Comma-separated or a YAML flow
+    list [a, b, c]; items are stripped of whitespace and quotes. Empty value -> []."""
+    raw = _unquote(raw.strip())
+    if raw.startswith("[") and raw.endswith("]"):
+        raw = raw[1:-1]
+    return [t.strip() for t in raw.split(",") if t.strip()]
+
+
+# "all" for skill-fact listing: far beyond any realistic personal skill catalog.
+_SYNC_ALL_LIMIT = 100_000
+
+
+def _skill_sync(args: argparse.Namespace, store: MemoryStore) -> dict:
+    """Upsert one fact per skill (category 'skill') from --dir directories of
+    <skill-name>/SKILL.md subdirectories. Content is '<name>: <description>' (name from
+    frontmatter, falling back to the directory name), tags are 'skill-id:<name>',
+    'skill-dir:<abs path>' plus any optional 'triggers:' frontmatter entries. Idempotent:
+    a fact whose content and tags are unchanged is left alone. With --prune, skill facts
+    carrying a skill-id tag whose id no longer appears in the given dirs are removed —
+    pass the COMPLETE dir list; unmanaged facts (no skill-id tag) are never touched."""
+    dirs = []
+    for d in args.dir:
+        p = Path(d).expanduser().resolve()
+        if not p.is_dir():
+            raise ValueError(f"skill dir not found: {d}")  # CLI contract: JSON error, exit 1
+        dirs.append(p)
+
+    skills: list[dict] = []
+    skipped: list[dict] = []
+    for base in dirs:
+        for entry in sorted(base.iterdir()):
+            skill_md = entry / "SKILL.md"
+            if not (entry.is_dir() and skill_md.is_file()):
+                continue
+            try:
+                fm = _parse_skill_frontmatter(skill_md.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError) as exc:
+                skipped.append({"skill": entry.name, "reason": f"unreadable SKILL.md: {exc}"})
+                continue
+            name = (fm.get("name") or entry.name).strip()
+            description = (fm.get("description") or "").strip()
+            if not description:
+                skipped.append({"skill": name, "dir": str(entry),
+                                "reason": "missing or empty description (frontmatter 'description:' key)"})
+                continue
+            skills.append({"name": name, "description": description,
+                           "triggers": _parse_triggers(fm.get("triggers", "")),
+                           "dir": str(entry)})
+
+    # Existing skill facts keyed by their skill-id tag (the upsert key).
+    by_id: dict[str, dict] = {}
+    for row in store.list_facts(category="skill", limit=_SYNC_ALL_LIMIT):
+        for tag in row["tags"].split(","):
+            if tag.strip().startswith("skill-id:"):
+                by_id[tag.strip()[len("skill-id:"):]] = row
+                break
+
+    added: list[dict] = []
+    updated: list[dict] = []
+    unchanged = 0
+    synced_ids: set[str] = set()
+    for sk in skills:
+        synced_ids.add(sk["name"])
+        content = f"{sk['name']}: {sk['description']}"
+        tags = ", ".join([f"skill-id:{sk['name']}", f"skill-dir:{sk['dir']}"] + sk["triggers"])
+        existing = by_id.get(sk["name"])
+        if existing is None:
+            fact_id = store.add_fact(content, category="skill", tags=tags)
+            by_id[sk["name"]] = {"fact_id": fact_id, "content": content, "tags": tags}
+            added.append({"skill": sk["name"], "fact_id": fact_id})
+        elif existing["content"] == content and existing["tags"] == tags:
+            unchanged += 1
+        else:
+            # Same content keeps entities/vector; a changed content re-extracts and re-embeds
+            # inside update_fact. Tags-only changes (triggers) touch only the FTS-indexed column.
+            store.update_fact(existing["fact_id"], content=content, tags=tags)
+            by_id[sk["name"]] = {"fact_id": existing["fact_id"], "content": content, "tags": tags}
+            updated.append({"skill": sk["name"], "fact_id": existing["fact_id"]})
+
+    pruned: list[dict] = []
+    if args.prune:
+        for name, row in by_id.items():
+            if name not in synced_ids and store.remove_fact(row["fact_id"]):
+                pruned.append({"skill": name, "fact_id": row["fact_id"]})
+
+    return {"dirs": [str(d) for d in dirs], "skills": len(skills),
+            "added": added, "updated": updated, "unchanged": unchanged,
+            "pruned": pruned, "skipped": skipped}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -75,6 +210,11 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--tags", help="replace the comma-separated tags")
     s.add_argument("--category", help="replace the category")
     s.add_argument("--trust-delta", type=float, help="nudge trust_score by this amount (clamped to 0..1)")
+    s = sub.add_parser("skill-sync", help="upsert skill facts (category 'skill') from <skill>/SKILL.md dirs")
+    s.add_argument("--dir", action="append", required=True, metavar="DIR",
+                   help="a directory of <skill-name>/SKILL.md subdirs (repeatable; pass the full list)")
+    s.add_argument("--prune", action="store_true",
+                   help="remove skill facts (those with a skill-id tag) whose id no longer appears in the given dirs")
     s = sub.add_parser("list", help="browse facts by trust (find fact_ids to remove)")
     s.add_argument("--category")
     s.add_argument("--min-trust", type=float, default=0.0)
@@ -87,6 +227,11 @@ def main(argv: list[str] | None = None) -> int:
         a.top = max(1, a.top)  # SQLite LIMIT -1 means unlimited — a negative --top must not dump the store
     store = MemoryStore(db_path=_db_path(a))
     try:
+        if a.cmd == "skill-sync":
+            # Store-only operation (no retrieval) — runs before the FactRetriever is built.
+            # A missing dir raises ValueError, surfaced by the shared JSON-error contract below.
+            print(json.dumps(_skill_sync(a, store)))
+            return 0
         ret = FactRetriever(store)
         if a.cmd == "search":
             rows = ret.search(a.query, category=a.category, min_trust=a.min_trust, limit=a.top)
