@@ -258,9 +258,10 @@ restart.
 
 ### What the agent gets
 
-- **Six tools**: `memory_search` / `memory_probe` / `memory_related` /
-  `memory_reason` / `memory_add` / `memory_feedback` — the same operation
-  surface as the Hermes provider.
+- **Nine tools**: `memory_search` / `memory_probe` / `memory_related` /
+  `memory_reason` / `memory_add` / `memory_feedback` / `memory_update` /
+  `memory_remove` / `memory_list` — the same operation surface as the
+  Hermes provider.
 - **Context injection**: on the session's first model call, the top
   `injectTop` facts relevant to the latest user message are appended to the
   system prompt; later turns rely on the tools. With `injectPerTurn: true`,
@@ -325,6 +326,7 @@ python3 -m tiberius.cli --db PATH contradict [--category C] [--threshold T] [--t
 python3 -m tiberius.cli --db PATH add "fact" [--category C] [--tags a,b]
 python3 -m tiberius.cli --db PATH feedback <id> helpful|unhelpful
 python3 -m tiberius.cli --db PATH remove <id>
+python3 -m tiberius.cli --db PATH update <id> [--content TEXT] [--tags a,b] [--category C] [--trust-delta T]
 python3 -m tiberius.cli --db PATH list [--category C] [--min-trust T] [--top N]
 echo '[{"role":"user","content":"..."}]' | python3 -m tiberius.cli --db PATH extract
 ```

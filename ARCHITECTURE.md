@@ -184,9 +184,9 @@ up to the 500 most-recently-updated facts (optionally category-filtered)
 sharing any entity, scores
 `overlap · (1 − shift(sim))` where overlap is entity-set Jaccard (≥ 0.3
 gate) and shift maps cosine to [0,1]; reports pairs with near-opposite
-vectors and overlapping topics. O(n²) by design, capped. Currently exposed
-**only** via the Hermes provider (`fact_store` action) — not in the CLI or
-the OpenCode plugin.
+vectors and overlapping topics. O(n²) by design, capped. Exposed via the
+Hermes provider (`fact_store` action) and the CLI — not in the OpenCode
+plugin (a store-hygiene scan has no natural agent call moment).
 
 ## Statement extraction (`store.extract_statements`)
 
@@ -233,19 +233,22 @@ user text into candidate facts — one match per category:
 
 **CLI (`cli.py`).** The subprocess surface. DB resolution: `--db` >
 `$TIBERIUS_DB` > `~/.tiberius/memory.db`. Commands: search/probe/related/
-reason/contradict/add/feedback/remove/list/extract. Contract: **JSON on
-stdout, exit 0**; errors (unknown fact_id, empty add content, sqlite-level
-failures) are `{"error": ...}` + exit 1 — no tracebacks (callers parse
-stdout as JSON unconditionally).
+reason/contradict/add/feedback/remove/update/list/extract. Contract: **JSON on
+stdout, exit 0**; errors (unknown fact_id, empty add content, bare `update`
+with no fields, sqlite-level failures) are `{"error": ...}` + exit 1 — no
+tracebacks (callers parse stdout as JSON unconditionally).
 
 **OpenCode (`opencode/index.ts`).** Native V2 plugin; every operation shells
 out to `cli.py` (the core never runs inside the node process).
-**Runtime-verified against live OpenCode 2.0.28 (2026-10-26)** — all six
-tools, context injection, and event-driven extraction observed working
-end-to-end. Verified payload shapes (these were the untested assumptions):
+**Runtime-verified against live OpenCode 2.0.28 (2026-10-26)** — the recall
+and store tools, context injection, and event-driven extraction observed
+working end-to-end; the update/remove/list tools were live-smoked
+(2026-10-27) against the running store. Verified payload shapes (these were
+the untested assumptions):
 
-- 6 tools mirroring the Hermes surface: `memory_search` / `memory_probe` /
-  `memory_related` / `memory_reason` / `memory_add` / `memory_feedback`.
+- 9 tools mirroring the Hermes surface: `memory_search` / `memory_probe` /
+  `memory_related` / `memory_reason` / `memory_add` / `memory_feedback` /
+  `memory_update` / `memory_remove` / `memory_list`.
 - `context` hook: searches the last user message text and pushes top facts
   into the system prompt. Default: one-shot per session (tracked in an
   `injected` set); subsequent turns rely on tools. With `injectPerTurn`,

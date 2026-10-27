@@ -61,6 +61,48 @@ def test_cli_remove(tmp_path, capsys):
     assert "error" in json.loads(capsys.readouterr().out.strip())
 
 
+def test_cli_update(tmp_path, capsys):
+    db = str(tmp_path / "m.db")
+    out = _run(capsys, "--db", db, "add", "The deploy pipeline uses Docker on the build host.")
+    fid = out["fact_id"]
+
+    out = _run(capsys, "--db", db, "update", str(fid),
+               "--content", "The deploy pipeline uses Docker on the CI host.", "--tags", "deploy,docker")
+    assert out == {"updated": fid}
+
+    # New content is searchable under the new tokens; the removed token no longer matches
+    # (the FTS update trigger reindexed, not just the facts row).
+    out = _run(capsys, "--db", db, "search", "docker ci host", "--top", "3")
+    assert out["results"][0]["fact_id"] == fid
+    assert out["results"][0]["tags"] == "deploy,docker"
+    out = _run(capsys, "--db", db, "search", "build", "--top", "3")
+    assert out["results"] == []
+
+
+def test_cli_update_trust_delta(tmp_path, capsys):
+    db = str(tmp_path / "m.db")
+    out = _run(capsys, "--db", db, "add", "The deploy pipeline uses Docker on the build host.")
+    fid = out["fact_id"]
+
+    out = _run(capsys, "--db", db, "update", str(fid), "--trust-delta", "0.25")
+    assert out == {"updated": fid}
+    out = _run(capsys, "--db", db, "list", "--top", "5")
+    assert out["results"][0]["trust_score"] == 0.75  # 0.5 default + 0.25, clamped to [0, 1]
+
+
+def test_cli_update_errors(tmp_path, capsys):
+    db = str(tmp_path / "m.db")
+    _run(capsys, "--db", db, "add", "The deploy pipeline uses Docker on the build host.")
+
+    rc = cli.main(["--db", db, "update", "999", "--content", "x"])
+    assert rc == 1  # unknown id → JSON error, same contract as remove/feedback
+    assert "error" in json.loads(capsys.readouterr().out.strip())
+
+    rc = cli.main(["--db", db, "update", "1"])
+    assert rc == 1  # no fields: a bare update is an error, not a silent updated_at touch
+    assert "error" in json.loads(capsys.readouterr().out.strip())
+
+
 def test_cli_contradict(tmp_path, capsys):
     db = str(tmp_path / "m.db")
     _run(capsys, "--db", db, "add", "The Tiberius project stores facts in SQLite.")

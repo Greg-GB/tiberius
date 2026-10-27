@@ -9,6 +9,7 @@ Usage (repo dir importable as package ``tiberius``, i.e. its PARENT on PYTHONPAT
   python3 -m tiberius.cli [--db PATH] add "fact content" [--category C] [--tags a,b]
   python3 -m tiberius.cli [--db PATH] feedback <fact_id> helpful|unhelpful
   python3 -m tiberius.cli [--db PATH] remove <fact_id>
+  python3 -m tiberius.cli [--db PATH] update <fact_id> [--content TEXT] [--tags a,b] [--category C] [--trust-delta T]
   echo '[{"role":"user","content":"..."}]' | python3 -m tiberius.cli [--db PATH] extract
 
 DB path: --db > $TIBERIUS_DB > ~/.tiberius/memory.db. All output is JSON on stdout.
@@ -68,6 +69,12 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("action", choices=["helpful", "unhelpful"])
     s = sub.add_parser("remove", help="delete a fact by id (entity links + FTS cleaned)")
     s.add_argument("fact_id", type=int)
+    s = sub.add_parser("update", help="partially update a fact: --content / --tags / --category / --trust-delta")
+    s.add_argument("fact_id", type=int)
+    s.add_argument("--content", help="replace the content (entities re-extracted, HRR vector rebuilt)")
+    s.add_argument("--tags", help="replace the comma-separated tags")
+    s.add_argument("--category", help="replace the category")
+    s.add_argument("--trust-delta", type=float, help="nudge trust_score by this amount (clamped to 0..1)")
     s = sub.add_parser("list", help="browse facts by trust (find fact_ids to remove)")
     s.add_argument("--category")
     s.add_argument("--min-trust", type=float, default=0.0)
@@ -102,6 +109,17 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps({"error": f"fact_id {a.fact_id} not found"}))
                 return 1
             print(json.dumps({"removed": a.fact_id}))
+            return 0
+        elif a.cmd == "update":
+            if a.content is None and a.tags is None and a.category is None and a.trust_delta is None:
+                # A bare update would only touch updated_at — an invisible write the caller almost
+                # certainly did not mean. (The store method stays permissive for the provider path.)
+                print(json.dumps({"error": "nothing to update: pass --content, --tags, --category, or --trust-delta"}))
+                return 1
+            if not store.update_fact(a.fact_id, content=a.content, trust_delta=a.trust_delta, tags=a.tags, category=a.category):
+                print(json.dumps({"error": f"fact_id {a.fact_id} not found"}))  # same contract as remove/feedback
+                return 1
+            print(json.dumps({"updated": a.fact_id}))
             return 0
         elif a.cmd == "list":
             rows = store.list_facts(category=a.category, min_trust=a.min_trust, limit=a.top)

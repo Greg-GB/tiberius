@@ -1,6 +1,6 @@
 ---
 name: tiberius-usage
-description: "Use when local memory tools are available (search / probe / related / reason / add / feedback). Recall before answering questions that may already be known; store only durable facts; rate recall quality after use."
+description: "Use when local memory tools are available (search / probe / related / reason / add / feedback / update / remove / list). Recall before answering questions that may already be known; store only durable facts; rate recall quality after use."
 ---
 
 # Using Tiberius memory effectively
@@ -33,8 +33,9 @@ projects, and tools. Nothing leaves the machine.
   (file contents, versions, current time), one-off instructions.
 - One fact per call, present-tense declarative: `User prefers X`, never
   `I should always X` (imperatives get re-read as directives later).
-- **Search before adding.** Update or replace a stale fact instead of
-  storing a duplicate.
+- **Search before adding.** Update a stale fact in place instead of storing
+  a duplicate — `update` keeps the id, entity links, and retrieval history.
+  `remove` only for facts that are wrong or obsolete.
 
 ## Feedback — train the store
 

@@ -5,8 +5,9 @@
  * implementation of the memory heuristics, not a port. No network: the engine
  * runs in this container against a local SQLite file.
  *
- * Runtime-verified against live OpenCode 2.0.28 (2026-10-26): all six tools,
- * context injection, and session-end extraction observed working end-to-end.
+ * Runtime-verified against live OpenCode 2.0.28 (2026-10-26): the recall and
+ * store tools, context injection, and session-end extraction observed working
+ * end-to-end (the update/remove/list tools were live-smoked 2026-10-27).
  *
  * opencode.json:
  *   { "plugins": [{ "package": "file:///opt/tiberius/opencode",
@@ -25,7 +26,8 @@
  *
  * What it does:
  *   - tools: memory_search / memory_probe / memory_related / memory_reason / memory_add / memory_feedback
- *     (same operation surface as the Hermes provider — see skills/tiberius-usage/SKILL.md)
+ *     / memory_update / memory_remove / memory_list (same operation surface as
+ *     the Hermes provider — see skills/tiberius-usage/SKILL.md)
  *   - context hook: first model call per session pushes top relevant facts into
  *     the system prompt; with injectPerTurn, every new user message is searched
  *     and only not-yet-shown facts are injected — recall that does not depend
@@ -207,6 +209,42 @@ export default Plugin.define({
           if (input.tags) args.push("--tags", String(input.tags));
           const r = await callEngine(engine, baseArgs, args, undefined, env);
           return { content: JSON.stringify(r ?? {}) };
+        },
+      });
+      e.add({
+        name: "memory_update",
+        description: "Update an existing fact in place: new content, tags, category, and/or a trust nudge. Prefer this over remove+add — it keeps the fact_id, entity links, and retrieval history.",
+        input: { type: "object", properties: { fact_id: { type: "integer", description: "The id of the fact to update" }, content: { type: "string", description: "New full content (one statement, present tense)" }, tags: { type: "string", description: "Comma-separated tags (replaces the current tags)" }, category: { type: "string", description: "user_pref | project | tool | general" }, trust_delta: { type: "number", description: "Trust adjustment, e.g. 0.1 (clamped to 0..1)" } }, required: ["fact_id"] },
+        execute: async (input: any) => {
+          const args = ["update", String(input.fact_id)];
+          if (input.content) args.push("--content", String(input.content));
+          if (input.tags) args.push("--tags", String(input.tags));
+          if (input.category) args.push("--category", String(input.category));
+          if (typeof input.trust_delta === "number") args.push("--trust-delta", String(input.trust_delta));
+          if (args.length === 2) return { content: JSON.stringify({ error: "nothing to update: pass content, tags, category, or trust_delta" }) };
+          const r = await callEngine(engine, baseArgs, args, undefined, env);
+          return { content: JSON.stringify(r ?? {}) };
+        },
+      });
+      e.add({
+        name: "memory_remove",
+        description: "Delete a fact by id — for facts that are wrong or obsolete. Prefer memory_update when only the content is outdated.",
+        input: { type: "object", properties: { fact_id: { type: "integer", description: "The id to delete" } }, required: ["fact_id"] },
+        execute: async (input: any) => {
+          const r = await callEngine(engine, baseArgs, ["remove", String(input.fact_id)], undefined, env);
+          return { content: JSON.stringify(r ?? {}) };
+        },
+      });
+      e.add({
+        name: "memory_list",
+        description: "Browse stored facts ordered by trust (find fact_ids to update or remove).",
+        input: { type: "object", properties: { category: { type: "string", description: "user_pref | project | tool | general" }, top: { type: "integer", description: "Max results (default 50)" } } },
+        execute: async (input: any) => {
+          const args = ["list"];
+          if (input.category) args.push("--category", String(input.category));
+          args.push("--top", String(input.top ?? 50));
+          const r = await callEngine(engine, baseArgs, args, undefined, env);
+          return { content: JSON.stringify((r?.results ?? []).map((f) => ({ id: f.fact_id, content: f.content, category: f.category, trust: f.trust_score }))) };
         },
       });
     });
