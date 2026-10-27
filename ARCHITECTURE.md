@@ -250,11 +250,14 @@ the untested assumptions):
   `memory_related` / `memory_reason` / `memory_add` / `memory_feedback` /
   `memory_update` / `memory_remove` / `memory_list`.
 - `context` hook: searches the last user message text and pushes top facts
-  into the system prompt. Default: one-shot per session (tracked in an
-  `injected` set); subsequent turns rely on tools. With `injectPerTurn`,
-  every **new** user message is searched (per-session `lastSearched` — later
-  model calls in the same turn skip the engine) and only facts not yet
-  injected into the session are pushed (over-fetch top-10, inject ≤3).
+  into the system prompt. Default: per-turn — every **new** user message is
+  searched (per-session `lastSearched` — later model calls in the same turn
+  skip the engine) and only facts not yet injected into the session are
+  pushed (over-fetch top-10, inject ≤3). Query-conditioned recall, matching
+  the Hermes provider's per-turn `prefetch()`; recall tracks the question
+  rather than a session-start snapshot. `injectPerTurn: false` reverts to
+  one-shot per session (tracked in an `injected` set); subsequent turns rely
+  on tools.
   Live-verified 2026-10-27 (per-turn injection observed end-to-end, including
   the counter side effect). Three live-verified constraints:
   - `event.messages` is **provider-shaped**: `{ id, role, content:
@@ -373,7 +376,5 @@ the release workflow publishes on `vX.Y.Z` tags.
 - `contradict` not in OpenCode (CLI only) — add as a plugin tool if a
   maintenance flow wants it agent-accessible.
 - `related()` hop filter is N SELECTs (ponytail: fine for current set sizes).
-- OpenCode context injection is once per session by default; `injectPerTurn`
-  re-queries each new user message (opt-in, live-verified 2026-10-27).
 - `update_fact` cannot clear a field to NULL (sentinel is None); pass `""`
   for tags to clear.

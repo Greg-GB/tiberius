@@ -254,7 +254,7 @@ restart.
 | `engine` | `["python3", "-m", "tiberius.cli"]` | argv used to launch the engine |
 | `pythonpath` | inherited from the environment | `PYTHONPATH` for the engine; set it to the repo parent so `python3 -m tiberius.cli` resolves |
 | `injectTop` | `4` | facts injected into the system prompt at session start |
-| `injectPerTurn` | `false` | per-turn injection: each new user message is searched and newly relevant facts (up to 3 per turn, deduped per session) are injected |
+| `injectPerTurn` | `true` | per-turn injection (default): each new user message is searched and newly relevant facts (up to 3 per turn, deduped per session) are injected — query-conditioned recall, matching the Hermes provider's per-turn prefetch. Set `false` for a one-shot session-start push instead |
 
 ### What the agent gets
 
@@ -262,12 +262,12 @@ restart.
   `memory_reason` / `memory_add` / `memory_feedback` / `memory_update` /
   `memory_remove` / `memory_list` — the same operation surface as the
   Hermes provider.
-- **Context injection**: on the session's first model call, the top
-  `injectTop` facts relevant to the latest user message are appended to the
-  system prompt; later turns rely on the tools. With `injectPerTurn: true`,
-  every new user message is searched and newly relevant facts (up to 3 per
-  turn, deduped per session) are injected — recall that does not depend on
-  the agent remembering to call the tools.
+- **Context injection**: by default, every new user message is searched and
+  newly relevant facts (up to 3 per turn, deduped per session) are appended
+  to the system prompt — query-conditioned recall, matching the Hermes
+  provider's per-turn prefetch. Set `injectPerTurn: false` for the one-shot
+  variant: the top `injectTop` facts for the session's first message, then
+  the tools.
 - **Session-end extraction**: when an execution succeeds (or is interrupted),
   statements like "I prefer X" / "the project uses Y" are regex-extracted from
   the user's messages. Idempotent — facts dedupe on exact content, so

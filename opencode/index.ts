@@ -20,24 +20,27 @@
  *               the container's PYTHONPATH; set it to the repo parent so
  *               `python3 -m tiberius.cli` resolves)
  *   injectTop   facts injected into the system prompt at session start (default 4)
- *   injectPerTurn  per-turn injection: each new user message is searched and
- *               newly relevant facts are injected, deduped per session
- *               (default false — one-shot session-start injection)
+ *   injectPerTurn  per-turn injection (default true): each new user message is
+ *               searched and newly relevant facts are injected, deduped per
+ *               session — query-conditioned recall, matching the Hermes
+ *               provider's per-turn prefetch. Set false for one-shot
+ *               session-start injection.
  *
  * What it does:
  *   - tools: memory_search / memory_probe / memory_related / memory_reason / memory_add / memory_feedback
  *     / memory_update / memory_remove / memory_list (same operation surface as
  *     the Hermes provider — see skills/tiberius-usage/SKILL.md)
- *   - context hook: first model call per session pushes top relevant facts into
- *     the system prompt; with injectPerTurn, every new user message is searched
- *     and only not-yet-shown facts are injected — recall that does not depend
- *     on the agent remembering to call the tools
+ *   - context hook: by default, every new user message is searched and only
+ *     not-yet-shown facts are injected into the system prompt (query-conditioned
+ *     recall, matching the Hermes provider); injectPerTurn: false reverts to a
+ *     one-shot push on the session's first model call — recall that does not
+ *     depend on the agent remembering to call the tools
  *   - event: on session.execution.succeeded, regex-extracts statements from user messages
  *
- * ponytail: default context injection is one-shot per session (memory added
- * mid-session shows up in the next session); injectPerTurn re-queries each new
- * user message. Memory must never break model dispatch — every engine call is
- * caught and swallowed.
+ * Memory must never break model dispatch — every engine call is caught and
+ * swallowed. (Per-turn injection is the default, so memory added mid-session
+ * is picked up on the next turn; injectPerTurn: false reverts to the one-shot
+ * session-start behavior.)
  */
 import { execFile, type ChildProcess } from "node:child_process";
 import { Plugin } from "@opencode/plugin";
@@ -137,13 +140,18 @@ export default Plugin.define({
     const engine = opts.engine ?? ["python3", "-m", "tiberius.cli"];
     const baseArgs = opts.db ? ["--db", opts.db] : [];
     const env = opts.pythonpath ? { PYTHONPATH: opts.pythonpath } : undefined; // else: container's baked-in ENV PYTHONPATH
+    // Per-turn (query-conditioned) injection is the default — matching the
+    // Hermes provider's per-turn prefetch(), where recall tracks the question
+    // rather than a session-start snapshot. injectPerTurn: false reverts to
+    // the one-shot session-start push.
+    const injectPerTurn = opts.injectPerTurn ?? true;
     const injected = new Set<string>();
     // User-message ids already fed to extract, per session: each turn sends only
     // the delta, so extract cost stays O(new messages) instead of O(session).
     // A hot-reload loses this map and re-extracts a session's history once —
     // idempotent under UNIQUE(content).
     const extractedUserMsgs = new Map<string, Set<string>>();
-    // Per-turn injection state (only used when injectPerTurn): the last user
+    // Per-turn injection state (only used when per-turn injection is on): the last user
     // message text searched per session (model calls within the same turn
     // re-dispatch the same messages — no engine call needed) and the
     // fact_ids already injected per session (each turn injects only what is
@@ -249,7 +257,7 @@ export default Plugin.define({
       });
     });
 
-    // --- context injection: top relevant facts once per session --------------
+    // --- context injection: per-turn by default (query-conditioned) ----------
     // Verified against live OpenCode 2.0.28 (2026-10): event.messages carries
     // provider-shaped messages ({ role, content: [{ type: "text", text }] }),
     // and event.system is snapshotted when the hook's promise settles — the
@@ -269,7 +277,7 @@ export default Plugin.define({
         .pop();
       if (!lastUser) return;
       const query = lastUser.slice(0, 200);
-      if (opts.injectPerTurn) {
+      if (injectPerTurn) {
         // Per-turn: every new user message gets its own search; facts already
         // shown this session are not re-pushed (each turn injects only what is
         // new to that turn). Later model calls within the same turn re-dispatch
