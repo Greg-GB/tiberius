@@ -18,9 +18,9 @@ See [What's changed](#whats-changed-vs-upstream).
 ## A note on provenance
 
 Tiberius was developed alongside a local LLM (an AI coding agent) and human
-review. The whole codebase is ~1,500 lines across six files — small enough
-to read in one sitting — and every push is gated in CI by a 36-test core
-suite, 12 plugin unit tests, and an 18-query golden recall eval. But it will
+review. The whole codebase is ~1,400 lines across six files — small enough
+to read in one sitting — and every push is gated in CI by a 47-test core
+suite, 12 plugin unit tests, and a 19-query golden recall eval. But it will
 store **your personal memory**: read the code and verify the parts you rely
 on before you trust it with your data.
 
@@ -78,7 +78,7 @@ Files:
 - `provider.py` — Hermes `MemoryProvider` adapter (in-process plugin)
 - `cli.py` — generic entrypoint for every other harness (`python3 -m tiberius.cli`)
 - `opencode/` — native OpenCode V2 TypeScript plugin (wraps the CLI locally)
-- `eval/` — golden-query recall harness (18 queries over a committed synthetic fixture; CI runs it on every push)
+- `eval/` — golden-query recall harness (19 queries over a committed synthetic fixture; CI runs it on every push)
 
 ## What's changed vs upstream
 
@@ -90,12 +90,20 @@ Files:
 - **Standalone core**: `store.py`/`retrieval.py`/`holographic.py` have no hard dependency on any
   harness (stdlib-only fallbacks; numpy optional).
 - **Harness adapters**: `provider.py` (Hermes, in-process), `cli.py` (generic JSON CLI),
-  `opencode/` (native OpenCode V2 plugin with per-session context injection and session-end
-  extraction).
-- **Quality gates**: a 36-test core suite, 12 plugin unit tests, Hermes-provider
-  tests (need a Hermes environment), and an 18-query golden recall eval (`eval/`)
-  that any retrieval change must not regress (fixture baseline recall@1 18/18,
-  recall@3 18/18).
+  `opencode/` (native OpenCode V2 plugin with per-turn context injection — on by default —
+  and session-end extraction).
+- **Full operation parity**: every adapter exposes the same surface — search / probe /
+  related / reason, plus CRUD and hygiene (`add`, `update`, `remove`, `list` with
+  `--since` time filtering, `contradict`, `feedback`).
+- **Discovery passes**: alias expansion and prefix fallback in retrieval, so near-miss
+  and partial queries still land the right fact.
+- **Near-duplicate detection**: `add` reports `possible_duplicates` (token-overlap over
+  the FTS candidate pool) — report-only, the caller removes if it agrees; the store
+  never blocks a write.
+- **Quality gates**: a 47-test core suite, 12 plugin unit tests, Hermes-provider
+  tests (need a Hermes environment; 71 total locally), and a 19-query golden recall
+  eval (`eval/`) that any retrieval change must not regress (fixture baseline
+  recall@1 19/19, recall@3 19/19).
 
 ## Prerequisites
 
@@ -198,7 +206,7 @@ for r in sqlite3.connect('tiberius_store.db').execute(
 `opencode/index.ts` is a native OpenCode V2 plugin. Every operation shells out
 to the Python CLI in a local subprocess — the core never runs inside the node
 process, and nothing crosses the network. **Runtime-verified against live
-OpenCode 2.0.28** (2026-10-26): all six tools, context injection, and
+OpenCode 2.0.28** (2026-10-26): all nine tools, context injection, and
 session-end extraction were observed working end-to-end; the verified payload
 shapes are documented in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
@@ -327,7 +335,7 @@ python3 -m tiberius.cli --db PATH add "fact" [--category C] [--tags a,b]
 python3 -m tiberius.cli --db PATH feedback <id> helpful|unhelpful
 python3 -m tiberius.cli --db PATH remove <id>
 python3 -m tiberius.cli --db PATH update <id> [--content TEXT] [--tags a,b] [--category C] [--trust-delta T]
-python3 -m tiberius.cli --db PATH list [--category C] [--min-trust T] [--top N]
+python3 -m tiberius.cli --db PATH list [--category C] [--min-trust T] [--since 30m|2h|7d|2w|YYYY-MM-DD] [--top N]
 echo '[{"role":"user","content":"..."}]' | python3 -m tiberius.cli --db PATH extract
 ```
 
@@ -344,7 +352,7 @@ skills directory (or referencing it from your agent instructions).
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) — the one rule that matters: retrieval
-changes must not regress the golden eval (fixture baseline recall@1 18/18, recall@3 18/18).
+changes must not regress the golden eval (fixture baseline recall@1 19/19, recall@3 19/19).
 AI coding agents: [AGENTS.md](AGENTS.md). Security policy and what counts as a
 vulnerability in a local-memory project: [SECURITY.md](SECURITY.md).
 
@@ -353,7 +361,7 @@ vulnerability in a local-memory project: [SECURITY.md](SECURITY.md).
 Core tests (`test_tiberius_store`, `test_tiberius_retrieval`, `test_tiberius_cli`) need nothing
 beyond Python 3.11+ and pytest; provider tests additionally import Hermes core. Retrieval
 quality is gated by the golden eval: `python eval/run_eval.py` runs the committed
-synthetic fixture (fixture baseline recall@1 18/18, recall@3 18/18); pass a DB path to
+synthetic fixture (fixture baseline recall@1 19/19, recall@3 19/19); pass a DB path to
 eval against your own live store: `python eval/run_eval.py /path/to/your.db`. CI runs
 the core suite + fixture eval on every push.
 
