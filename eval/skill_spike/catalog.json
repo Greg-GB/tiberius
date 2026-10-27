@@ -1,0 +1,113 @@
+{
+  "comment": "Phase 0 skill-retrieval spike catalog. 'real' skills are OpenCode's own public skills (not user data); 'synthetic' are realistic fictional skills. Queries are 1:1-constructed: each has one clear target skill. See docs/skill-retrieval.md §6.",
+  "skills": [
+    {
+      "id": "tiberius-usage",
+      "source": "real:opencode",
+      "description": "Use when local memory tools are available (search / probe / related / reason / add / feedback / update / remove / list). Recall before answering questions that may already be known; store only durable facts; rate recall quality after use.",
+      "triggers": ["remember", "what do you remember", "preference", "recall"]
+    },
+    {
+      "id": "report",
+      "source": "real:opencode",
+      "description": "Use when the user wants to report an opencode issue or bug. Collect standard diagnostics, add user-specific reproduction context, and publish the issue with GitHub CLI."
+    },
+    {
+      "id": "opencode",
+      "source": "real:opencode",
+      "description": "Use this skill for any question about OpenCode itself, including how OpenCode works, using or configuring it, migrating from V1 to V2, troubleshooting it, developing plugins or integrations, using the OpenCode SDK, clients, server, or API, and contributing to the OpenCode codebase. Also use it for OpenCode agents, commands, skills, tools, permissions, MCP servers, providers, models, themes, keybinds, formatters, the CLI, TUI, desktop app, and web app."
+    },
+    {
+      "id": "git-pr-workflow",
+      "source": "synthetic",
+      "description": "Use when creating pull requests or reviewing git history. Covers branch naming, conventional commit messages, rebasing onto main, and gh CLI commands for opening, checking, and merging pull requests."
+    },
+    {
+      "id": "gateway-deploy",
+      "source": "synthetic",
+      "description": "Use when deploying or restarting a service gateway. Covers config re-sync, profile database paths, and post-restart health checks."
+    },
+    {
+      "id": "sql-debugging",
+      "source": "synthetic",
+      "description": "Use when debugging SQLite or Postgres queries. Covers EXPLAIN plans, index inspection, N+1 query detection, and comparing query plans before and after a change."
+    },
+    {
+      "id": "docker-compose",
+      "source": "synthetic",
+      "description": "Use when working with Docker Compose configurations. Covers service networking, volume mounts, environment variable interpolation, and debugging unhealthy containers."
+    },
+    {
+      "id": "pytest-triage",
+      "source": "synthetic",
+      "description": "Use when triaging failing pytest runs. Covers reproducing flaky tests, reading tracebacks, isolating fixture pollution, and bisecting test regressions."
+    },
+    {
+      "id": "csv-analysis",
+      "source": "synthetic",
+      "description": "Use when analyzing CSV or tabular data files. Covers loading with the standard library, handling malformed rows, computing aggregates, and generating summary statistics."
+    },
+    {
+      "id": "pdf-extraction",
+      "source": "synthetic",
+      "description": "Use when extracting text or tables from PDF documents. Covers page selection, layout-preserving extraction, and fallback strategies for scanned documents."
+    },
+    {
+      "id": "code-review",
+      "source": "synthetic",
+      "description": "Use when performing code review. Covers correctness checks, style consistency, security lookouts, test coverage, and writing actionable review comments."
+    },
+    {
+      "id": "api-integration",
+      "source": "synthetic",
+      "description": "Use when integrating with external HTTP APIs. Covers auth headers, pagination, rate limiting, retry with backoff, and classifying error responses.",
+      "triggers": ["429", "429s", "rate limit", "too many requests", "endpoint", "throttling"]
+    },
+    {
+      "id": "log-analysis",
+      "source": "synthetic",
+      "description": "Use when analyzing application log files. Covers grep patterns for errors, correlating timestamps across services, and summarizing incident timelines.",
+      "triggers": ["logs", "log files", "log lines", "incident", "went wrong"]
+    },
+    {
+      "id": "refactoring",
+      "source": "synthetic",
+      "description": "Use when refactoring existing code. Covers extracting functions, renaming with call-site updates, keeping tests green, and small-step commits.",
+      "triggers": ["split", "large file", "too long", "restructure", "cleanup"]
+    },
+    {
+      "id": "web-research",
+      "source": "synthetic",
+      "description": "Use when researching topics on the web. Covers search query formulation, source evaluation, fetching pages, and citing findings."
+    },
+    {
+      "id": "kubernetes",
+      "source": "synthetic",
+      "description": "Use when working with Kubernetes clusters. Covers kubectl commands, reading pod states, checking service endpoints, and troubleshooting scheduling issues."
+    },
+    {
+      "id": "typecheck-fixing",
+      "source": "synthetic",
+      "description": "Use when fixing TypeScript type errors after a dependency upgrade. Covers reading compiler output, narrowing the error scope, and avoiding unsafe casts."
+    }
+  ],
+  "queries": [
+    { "skill": "tiberius-usage", "query": "what do you remember about how I like my deploys done?" },
+    { "skill": "report", "query": "I want to file a bug about the TUI eating my keyboard shortcuts" },
+    { "skill": "opencode", "query": "how do I configure the MCP server in opencode.json?" },
+    { "skill": "git-pr-workflow", "query": "help me open a PR for the feature I just finished" },
+    { "skill": "gateway-deploy", "query": "the gateway keeps crashing after I change the profile config, can you redeploy it?" },
+    { "skill": "sql-debugging", "query": "this query is taking 4 seconds, can you see why it is so slow?" },
+    { "skill": "docker-compose", "query": "my container shows unhealthy in compose ps, what do I check first?" },
+    { "skill": "pytest-triage", "query": "two tests fail only when run together but pass alone" },
+    { "skill": "csv-analysis", "query": "can you summarize what is in this CSV of sales data?" },
+    { "skill": "pdf-extraction", "query": "I need the tables out of this PDF report" },
+    { "skill": "code-review", "query": "please review my changes to the auth module before I push" },
+    { "skill": "api-integration", "query": "the payment endpoint returns 429s when we poll it" },
+    { "skill": "log-analysis", "query": "something went wrong at 02:14 last night, piece together what happened from the logs" },
+    { "skill": "refactoring", "query": "this file is 900 lines, I would like to split it into smaller pieces" },
+    { "skill": "web-research", "query": "find me the latest info on vector dimension choices for reduced representations" },
+    { "skill": "kubernetes", "query": "pod stuck in CrashLoopBackOff, how do I debug it?" },
+    { "skill": "typecheck-fixing", "query": "after the React upgrade tsc is screaming about 200 errors" }
+  ]
+}
