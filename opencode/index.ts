@@ -52,12 +52,12 @@ const ENGINE_TIMEOUT_MS = 30_000;
 // can kill them instead of leaking orphaned python processes mid-write.
 const activeChildren = new Set<ChildProcess>();
 
-function runEngine(engine: string[], baseArgs: string[], args: string[], input?: string, envOverride?: Record<string, string>): Promise<EngineResult | null> {
+export function runEngine(engine: string[], baseArgs: string[], args: string[], input?: string, envOverride?: Record<string, string>, timeoutMs: number = ENGINE_TIMEOUT_MS): Promise<EngineResult | null> {
   return new Promise((resolveP, rejectP) => {
     const child = execFile(engine[0], [...engine.slice(1), ...baseArgs, ...args], {
       env: envOverride ? { ...process.env, ...envOverride } : process.env,
       maxBuffer: 10 * 1024 * 1024,
-      timeout: ENGINE_TIMEOUT_MS,
+      timeout: timeoutMs,
     }, (err, stdout) => {
       activeChildren.delete(child);
       if (err) {
@@ -90,7 +90,7 @@ function runEngine(engine: string[], baseArgs: string[], args: string[], input?:
 // Safe wrapper for tool executes: an engine failure becomes a consistent
 // {"error": ...} result the model can read, never a thrown raw Node error.
 // (Memory outages must degrade the answer, not crash the turn.)
-async function callEngine(engine: string[], baseArgs: string[], args: string[], input?: string, envOverride?: Record<string, string>): Promise<EngineResult | null> {
+export async function callEngine(engine: string[], baseArgs: string[], args: string[], input?: string, envOverride?: Record<string, string>): Promise<EngineResult | null> {
   try {
     return await runEngine(engine, baseArgs, args, input, envOverride);
   } catch (e) {
@@ -98,7 +98,7 @@ async function callEngine(engine: string[], baseArgs: string[], args: string[], 
   }
 }
 
-function messageText(m: unknown): string {
+export function messageText(m: unknown): string {
   const msg = m as any;
   if (typeof msg?.text === "string") return msg.text;
   // V2 context hooks deliver provider-shaped messages: { role, content: [{ type: "text", text }] }

@@ -39,3 +39,7 @@ jobs:
         run: cd opencode && npm ci --no-audit --no-fund
       - name: Typecheck
         run: cd opencode && npm run typecheck
+      # Engine-subprocess layer unit tests (fake `sh`/`cat` engines, no Python,
+      # no network). Requires Node >= 22.6 for --experimental-strip-types.
+      - name: Unit tests
+        run: cd opencode && npm test
