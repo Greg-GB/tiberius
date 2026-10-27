@@ -280,13 +280,21 @@ and is caught. Tool calls return `{"error": ...}` when the engine fails
 subprocesses are killed when the plugin unloads, so a restart can't leave a
 python process holding the DB write-lock.
 
+### Uninstall
+
+1. Remove the plugin's `plugins` entry — and its `skills` entry, if you
+   registered it — from `opencode.json`. The config hot-reloads, so the
+   agent loses the `memory_*` tools without a restart.
+2. Optionally delete the repo clone (e.g. `rm -rf /opt/tiberius`).
+3. **The database stays.** Uninstalling only stops the agent reading and
+   writing — the file at `options.db` (default `~/.tiberius/memory.db`) is
+   untouched. Keep it as a backup, or delete it if you want the memory gone.
+
 ### Development
 
 ```bash
 cd opencode && npm ci && npm run typecheck && npm test
 ```
-
-To uninstall: remove the `plugins` entry. The database file stays where it is.
 
 ## Any other harness
 
