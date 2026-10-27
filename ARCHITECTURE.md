@@ -244,11 +244,23 @@ user text into candidate facts — one match per category:
 `$TIBERIUS_DB` > `~/.tiberius/memory.db`. Commands: search/probe/related/
 reason/contradict/add/feedback/remove/update/list/extract. Contract: **JSON on
 stdout, exit 0**; errors (unknown fact_id, empty add content, bare `update`
-with no fields, sqlite-level failures) are `{"error": ...}` + exit 1 — no
-tracebacks (callers parse stdout as JSON unconditionally). `add` also returns
+with no fields, bad `--since`, sqlite-level failures) are `{"error": ...}` +
+exit 1 — no tracebacks (callers parse stdout as JSON unconditionally). `list`
+accepts `--since` (ISO date/datetime UTC or relative 30m/2h/7d/2w) — filtered
+against `created_at` via same-format string comparison. `add` also returns
 `possible_duplicates` — near-identical prior facts surfaced via the shared
 `FactRetriever.find_duplicates` check (raw token Jaccard ≥ 0.5 over the FTS
 top-5, trust-independent); report-only, the caller removes if it agrees.
+
+**Supplemental output pattern.** Response fields beyond the primary result (e.g.
+`add`'s `possible_duplicates`) ship as a three-piece set: (1) **omitted when empty**
+— an empty array is pure noise in every response; (2) a one-line **`note`** when
+non-empty, stating what the field is and the action to take, so the response is
+actionable without outside knowledge; (3) a line in the **tool schema description**
+and in `skills/tiberius-usage` — the schema is the only contract text every agent
+reads. The bar a supplemental field must clear: the caller can act on it **at the
+moment of the response** (write-time signals like dedupe pass; read-time needs
+belong in pull tools — related/probe/list).
 
 **OpenCode (`opencode/index.ts`).** Native V2 plugin; every operation shells
 out to `cli.py` (the core never runs inside the node process).

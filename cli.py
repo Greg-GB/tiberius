@@ -78,6 +78,7 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("list", help="browse facts by trust (find fact_ids to remove)")
     s.add_argument("--category")
     s.add_argument("--min-trust", type=float, default=0.0)
+    s.add_argument("--since", help="only facts created at or after: ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w)")
     s.add_argument("--top", type=int, default=50)
     sub.add_parser("extract", help="regex-extract facts from a JSON message list on stdin")
 
@@ -99,8 +100,13 @@ def main(argv: list[str] | None = None) -> int:
             rows = ret.contradict(category=a.category, threshold=a.threshold, limit=a.top)
         elif a.cmd == "add":
             new_id = store.add_fact(a.content, category=a.category, tags=a.tags)
-            # Near-duplicate candidates for the caller to act on (report-only — removal is the caller's call).
-            print(json.dumps({"fact_id": new_id, "possible_duplicates": ret.find_duplicates(a.content, new_id)}))
+            out: dict = {"fact_id": new_id}
+            dups = ret.find_duplicates(a.content, new_id)
+            if dups:  # supplemental field: omitted when empty, note when present (see ARCHITECTURE.md)
+                out["possible_duplicates"] = dups
+                out["note"] = (f"{len(dups)} near-identical existing fact(s) — if one is a true duplicate, "
+                               "remove the older fact_id and keep this one.")
+            print(json.dumps(out))
             return 0
         elif a.cmd == "feedback":
             print(json.dumps(store.record_feedback(a.fact_id, helpful=a.action == "helpful")))
@@ -124,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"updated": a.fact_id}))
             return 0
         elif a.cmd == "list":
-            rows = store.list_facts(category=a.category, min_trust=a.min_trust, limit=a.top)
+            rows = store.list_facts(category=a.category, min_trust=a.min_trust, limit=a.top, since=a.since)
         else:  # extract
             raw = sys.stdin.read()
             try:

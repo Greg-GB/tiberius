@@ -246,10 +246,11 @@ export default Plugin.define({
       e.add({
         name: "memory_list",
         description: "Browse stored facts ordered by trust (find fact_ids to update or remove).",
-        input: { type: "object", properties: { category: { type: "string", description: "user_pref | project | tool | general" }, top: { type: "integer", description: "Max results (default 50)" } } },
+        input: { type: "object", properties: { category: { type: "string", description: "user_pref | project | tool | general" }, since: { type: "string", description: "Only facts created at or after — ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w)" }, top: { type: "integer", description: "Max results (default 50)" } } },
         execute: async (input: any) => {
           const args = ["list"];
           if (input.category) args.push("--category", String(input.category));
+          if (input.since) args.push("--since", String(input.since));
           args.push("--top", String(input.top ?? 50));
           const r = await callEngine(engine, baseArgs, args, undefined, env);
           return { content: JSON.stringify((r?.results ?? []).map((f) => ({ id: f.fact_id, content: f.content, category: f.category, trust: f.trust_score }))) };

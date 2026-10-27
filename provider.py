@@ -30,7 +30,7 @@ FACT_STORE_SCHEMA = {
     "description": (
         "Deep structured memory with algebraic reasoning. Use alongside the memory tool — memory for always-on "
         "context, fact_store for deep recall and compositional queries.\n\nACTIONS (simple → powerful):\n"
-        "• add — Store a fact the user would expect you to remember.\n• search — Keyword lookup ('editor config', 'deploy process').\n"
+        "• add — Store a fact the user would expect you to remember. When a near-identical existing fact exists it is returned as possible_duplicates with a note — remove the older one if it's a true duplicate.\n• search — Keyword lookup ('editor config', 'deploy process').\n"
         "• probe — Entity recall: ALL facts about a person/thing.\n• related — What connects to an entity? Structural adjacency.\n"
         "• reason — Compositional: facts connected to MULTIPLE entities simultaneously.\n"
         "• contradict — Memory hygiene: find facts making conflicting claims.\n• update/remove/list — CRUD operations.\n\n"
@@ -51,6 +51,7 @@ FACT_STORE_SCHEMA = {
             "tags": {"type": "string", "description": "Comma-separated tags."},
             "trust_delta": {"type": "number", "description": "Trust adjustment for 'update'."},
             "min_trust": {"type": "number", "description": "Minimum trust filter (default: 0.3)."},
+            "since": {"type": "string", "description": "'list': only facts created at or after — ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w)."},
             "limit": {"type": "integer", "description": "Max results (default: 10)."},
         },
         "required": ["action"],
@@ -217,7 +218,13 @@ class TiberiusMemoryProvider(MemoryProvider):
     def _add(self, a: dict) -> str:
         """'add': store the fact and report near-duplicate candidates (report-only — the caller removes if it agrees)."""
         fid = self._store.add_fact(a["content"], category=a.get("category", "general"), tags=a.get("tags", ""))
-        return json.dumps({"fact_id": fid, "possible_duplicates": self._retriever.find_duplicates(a["content"], fid)})
+        out: dict = {"fact_id": fid}
+        dups = self._retriever.find_duplicates(a["content"], fid)
+        if dups:  # supplemental field: omitted when empty, note when present (see ARCHITECTURE.md)
+            out["possible_duplicates"] = dups
+            out["note"] = (f"{len(dups)} near-identical existing fact(s) — if one is a true duplicate, "
+                           "remove the older fact_id and keep this one.")
+        return json.dumps(out)
 
     _TOOL_HANDLERS = {
         "fact_store": _tool_handler({
@@ -234,7 +241,7 @@ class TiberiusMemoryProvider(MemoryProvider):
                 tags=a.get("tags"), category=a.get("category"))}),
             "remove": lambda self, a: json.dumps({"removed": self._store.remove_fact(int(a["fact_id"]))}),
             "list": lambda self, a: _results(self._store.list_facts(
-                category=a.get("category"), min_trust=float(a.get("min_trust", 0.0)), limit=_limit(a)), key="facts"),
+                category=a.get("category"), min_trust=float(a.get("min_trust", 0.0)), limit=_limit(a), since=a.get("since")), key="facts"),
         }),
         "fact_feedback": lambda self, a: json.dumps(self._store.record_feedback(int(a["fact_id"]), helpful=a["action"] == "helpful")),
     }

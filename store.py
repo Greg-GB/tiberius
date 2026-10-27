@@ -4,6 +4,7 @@ import os
 import re
 import sqlite3
 import threading
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from . import holographic as hrr
@@ -109,6 +110,29 @@ _ENTITY_LOOKUPS = ("SELECT entity_id FROM entities WHERE name = ? COLLATE NOCASE
 
 def _clamp_trust(value: float) -> float:
     return max(0.0, min(1.0, value))
+
+
+def _parse_since(raw: str) -> str:
+    """--since value -> 'YYYY-MM-DD HH:MM:SS' UTC, the format created_at is stored in
+    (CURRENT_TIMESTAMP), so the SQL filter is a plain string comparison — same-format
+    ISO strings compare lexicographically in chronological order.
+    Accepts ISO (date or datetime, space or T separator, taken as UTC) or relative
+    30m / 2h / 7d / 2w from now. Raises ValueError on anything else (CLI contract:
+    JSON error, not a traceback)."""
+    m = re.fullmatch(r"(\d+)([mhdw])", raw.strip())
+    if m:
+        secs = int(m.group(1)) * {"m": 60, "h": 3600, "d": 86400, "w": 604800}[m.group(2)]
+        dt = datetime.now(timezone.utc) - timedelta(seconds=secs)
+    else:
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+            try:
+                dt = datetime.strptime(raw.strip(), fmt).replace(tzinfo=timezone.utc)
+                break
+            except ValueError:
+                continue
+        else:
+            raise ValueError(f"bad since {raw!r}: use ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w)")
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
 class MemoryStore:
@@ -247,13 +271,18 @@ class MemoryStore:
             self._write("DELETE FROM facts WHERE fact_id = ?", (fact_id,))
             return True
 
-    def list_facts(self, category: str | None = None, min_trust: float = 0.0, limit: int = 50) -> list[dict]:
-        """Browse facts ordered by trust_score descending, optionally filtered by category / min trust."""
+    def list_facts(self, category: str | None = None, min_trust: float = 0.0, limit: int = 50,
+                   since: str | None = None) -> list[dict]:
+        """Browse facts ordered by trust_score descending, optionally filtered by category / min trust /
+        since (ISO date/datetime UTC or relative 30m/2h/7d/2w — facts created at or after it).
+        Since filters on created_at, which only the write path sets — updates don't move it."""
         with self._lock:
             category_clause = "AND category = ? " if category is not None else ""
-            params = [min_trust] + ([category] if category is not None else []) + [limit]
-            sql = ("SELECT fact_id, content, category, tags, trust_score, retrieval_count, helpful_count, "
-                   f"created_at, updated_at FROM facts WHERE trust_score >= ? {category_clause}"
+            since_clause = "AND created_at >= ? " if since is not None else ""
+            params = [min_trust] + ([category] if category is not None else []) \
+                     + ([_parse_since(since)] if since is not None else []) + [limit]
+            sql = (f"SELECT fact_id, content, category, tags, trust_score, retrieval_count, helpful_count, "
+                   f"created_at, updated_at FROM facts WHERE trust_score >= ? {category_clause}{since_clause}"
                    "ORDER BY trust_score DESC LIMIT ?")
             return [dict(r) for r in self._conn.execute(sql, params).fetchall()]
 

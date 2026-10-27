@@ -44,6 +44,26 @@ def test_cli_add_reports_possible_duplicates(tmp_path, capsys):
     dups = out["possible_duplicates"]
     assert dups and dups[0]["fact_id"] == 1  # near-identical prior fact is surfaced
     assert "content" in dups[0] and "score" in dups[0]
+    assert "remove the older" in out["note"]  # note is present and tells the agent what to do
+
+
+def test_cli_add_omits_supplemental_fields_when_clean(tmp_path, capsys):
+    db = str(tmp_path / "m.db")
+    out = _run(capsys, "--db", db, "add", "The deploy pipeline uses Docker on the build host.")
+    assert "possible_duplicates" not in out  # empty supplement is omitted — no noise on a clean add
+    assert "note" not in out
+
+
+def test_cli_list_since(tmp_path, capsys):
+    db = str(tmp_path / "m.db")
+    _run(capsys, "--db", db, "add", "The deploy pipeline uses Docker on the build host.")
+
+    assert _run(capsys, "--db", db, "list", "--since", "24h")["count"] == 1   # relative form
+    assert _run(capsys, "--db", db, "list", "--since", "2000-01-01")["count"] == 1  # ISO date form
+
+    rc = cli.main(["--db", db, "list", "--since", "banana"])
+    assert rc == 1  # bad since is a JSON error + exit 1, not a traceback
+    assert "error" in json.loads(capsys.readouterr().out.strip())
 
 
 def test_cli_feedback_unknown_fact_id_is_json_error(tmp_path, capsys):
