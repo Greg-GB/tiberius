@@ -7,6 +7,7 @@ Usage (repo dir importable as package ``tiberius``, i.e. its PARENT on PYTHONPAT
   python3 -m tiberius.cli [--db PATH] reason "entity" "entity" [...]
   python3 -m tiberius.cli [--db PATH] add "fact content" [--category C] [--tags a,b]
   python3 -m tiberius.cli [--db PATH] feedback <fact_id> helpful|unhelpful
+  python3 -m tiberius.cli [--db PATH] remove <fact_id>
   echo '[{"role":"user","content":"..."}]' | python3 -m tiberius.cli [--db PATH] extract
 
 DB path: --db > $TIBERIUS_DB > ~/.tiberius/memory.db. All output is JSON on stdout.
@@ -59,6 +60,8 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("feedback", help="train trust: fact_id + helpful|unhelpful")
     s.add_argument("fact_id", type=int)
     s.add_argument("action", choices=["helpful", "unhelpful"])
+    s = sub.add_parser("remove", help="delete a fact by id (entity links + FTS cleaned)")
+    s.add_argument("fact_id", type=int)
     sub.add_parser("extract", help="regex-extract facts from a JSON message list on stdin")
 
     a = p.parse_args(argv)
@@ -78,6 +81,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         elif a.cmd == "feedback":
             print(json.dumps(store.record_feedback(a.fact_id, helpful=a.action == "helpful")))
+            return 0
+        elif a.cmd == "remove":
+            if not store.remove_fact(a.fact_id):
+                # Same JSON-error contract as feedback: unknown id is an error, not a traceback.
+                print(json.dumps({"error": f"fact_id {a.fact_id} not found"}))
+                return 1
+            print(json.dumps({"removed": a.fact_id}))
             return 0
         else:  # extract
             raw = sys.stdin.read()

@@ -43,3 +43,19 @@ def test_cli_feedback_unknown_fact_id_is_json_error(tmp_path, capsys):
 
     assert rc == 1  # JSON error on stdout, exit 1 — not a traceback (the CLI contract)
     assert "error" in json.loads(capsys.readouterr().out.strip())
+
+
+def test_cli_remove(tmp_path, capsys):
+    db = str(tmp_path / "m.db")
+    out = _run(capsys, "--db", db, "add", "The deploy pipeline uses Docker on the build host.")
+    fid = out["fact_id"]
+
+    out = _run(capsys, "--db", db, "remove", str(fid))
+    assert out == {"removed": fid}
+
+    out = _run(capsys, "--db", db, "search", "docker deploy host", "--top", "3")
+    assert out["results"] == []  # fact row and its FTS entry are both gone
+
+    rc = cli.main(["--db", db, "remove", "999"])
+    assert rc == 1  # unknown id → JSON error, same contract as feedback
+    assert "error" in json.loads(capsys.readouterr().out.strip())
