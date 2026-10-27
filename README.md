@@ -228,6 +228,13 @@ restart.
   statements like "I prefer X" / "the project uses Y" are regex-extracted from
   the user's messages. Idempotent — facts dedupe on exact content, so
   re-running per completed turn is safe.
+- **A usage skill**: `skills/tiberius-usage/SKILL.md` teaches the agent how
+  to recall, store, and rate facts well. OpenCode does not auto-discover the
+  repo's `skills/` directory — register it in `opencode.json`:
+
+  ```jsonc
+  { "skills": ["/opt/tiberius/skills"] }   // absolute path to the repo's skills dir
+  ```
 
 ### Data and persistence
 
