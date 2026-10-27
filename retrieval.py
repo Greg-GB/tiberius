@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 import math
+import re
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -92,7 +93,15 @@ class FactRetriever:
         with self.store._lock:  # retriever reads must not interleave with a store writer on the shared connection
             """FTS5 candidates (limit*3) → Jaccard + HRR rerank → trust weighting → optional temporal decay
             0.5^(age_days / half_life). Returns fact dicts with 'score', sorted desc."""
-            candidates = self._fts_candidates(query, category, min_trust, limit * 3)
+            # Discovery passes — candidate generation only. Ranking still scores the ORIGINAL
+            # query (Jaccard + HRR), and the prefix fallback fires only when the exact pass
+            # found nothing, so a working candidate set is never diluted.
+            expanded = self._expand_aliases(query)
+            candidates = self._fts_candidates(expanded, category, min_trust, limit * 3)
+            if not candidates:
+                # Exact tokens miss inflections (backup/backups, rotation/rotate): retry with
+                # prefix tokens ("tok"*) when — and only when — the exact pass returned nothing.
+                candidates = self._fts_candidates(expanded, category, min_trust, limit * 3, prefix=True)
             query_tokens = self._tokenize(query)
             # Query vector is loop-invariant; encode lazily on the first candidate that carries an HRR vector
             # so stores whose hrr_vector was never backfilled don't pay for it.
@@ -279,10 +288,33 @@ class FactRetriever:
             scored.append(fact)
         return sorted(scored, key=lambda x: x["score"], reverse=True)[:limit]
 
-    def _fts_candidates(self, query: str, category: str | None, min_trust: float, limit: int) -> list[dict]:
-        """Raw FTS5 MATCH candidates with rank normalized to [0, 1] as 'fts_rank'."""
+    def _expand_aliases(self, query: str) -> str:
+        """Append the entity name set for every entity the query names (canonical name or alias,
+        case-insensitive, word-boundary), so a query that names an entity by one name also
+        matches facts that mention only the other ("KVStore ..." reaches a fact that says only
+        "Redis ..."). Candidate generation only — Jaccard/HRR still score the original query.
+        ponytail: full entity scan per search — fine at single-user store sizes (dozens of
+        entities, one small SELECT); widen to an index/limit if that ever shows in a profile."""
+        q = query.lower()
+        extra: list[str] = []
+        seen: set = set()
+        rows = self.store._conn.execute("SELECT name, aliases FROM entities").fetchall()
+        for row in rows:
+            names = [row["name"]] + [a.strip() for a in (row["aliases"] or "").split(",") if a.strip()]
+            if not any(re.search(rf"(?<![a-z0-9]){re.escape(n.lower())}(?![a-z0-9])", q) for n in names):
+                continue
+            for n in names:
+                key = n.lower()
+                if key not in seen:
+                    seen.add(key)
+                    extra.append(n)
+        return f"{query} {' '.join(extra)}".strip() if extra else query
+
+    def _fts_candidates(self, query: str, category: str | None, min_trust: float, limit: int, prefix: bool = False) -> list[dict]:
+        """Raw FTS5 MATCH candidates with rank normalized to [0, 1] as 'fts_rank'.
+        prefix=True turns each token into a prefix match ("tok"*), used as the zero-candidate fallback."""
         category_clause = "AND f.category = ? " if category else ""
-        params = [self._sanitize_fts_query(query)] + ([category] if category else []) + [min_trust, limit]
+        params = [self._sanitize_fts_query(query, prefix=prefix)] + ([category] if category else []) + [min_trust, limit]
         sql = ("SELECT f.*, facts_fts.rank as fts_rank_raw FROM facts_fts JOIN facts f ON f.fact_id = facts_fts.rowid "
                f"WHERE facts_fts MATCH ? {category_clause}AND f.trust_score >= ? ORDER BY facts_fts.rank LIMIT ?")
         try:
@@ -304,13 +336,16 @@ class FactRetriever:
         return {c for c in (w.strip(_PUNCT) for w in text.lower().split()) if c} if text else set()
 
     @staticmethod
-    def _sanitize_fts_query(query: str) -> str:
+    def _sanitize_fts_query(query: str, prefix: bool = False) -> str:
         """Natural-language query -> FTS5-safe OR expression of quoted tokens. FTS5 AND-joins a multi-word
         MATCH by default, which tanks recall on prose: drop stopwords and <2-char tokens, strip FTS5 operator
-        chars, phrase-quote each survivor. If nothing survives, return the raw query (zero results, not a SQL error)."""
+        chars, phrase-quote each survivor. If nothing survives, return the raw query (zero results, not a SQL
+        error). prefix=True appends FTS5's prefix operator to each token ("tok"*), so inflected stored
+        tokens (fetch/fetches) still match — used only as the zero-candidate fallback."""
         if not query:
             return ""
-        tokens = [f'"{c}"' for c in (raw.strip(_PUNCT).translate(_FTS_OPERATORS) for raw in query.lower().split())
+        suffix = "*" if prefix else ""
+        tokens = [f'"{c}"{suffix}' for c in (raw.strip(_PUNCT).translate(_FTS_OPERATORS) for raw in query.lower().split())
                   if len(c) >= 2 and c not in _FTS_STOPWORDS]
         return " OR ".join(tokens) if tokens else query
 

@@ -13,5 +13,6 @@
   {"content": "The deploy pipeline runs on Docker and takes about eight minutes."},
   {"content": "Query p95 latency on the search service is forty milliseconds."},
   {"content": "Alice prefers concise, direct answers in code reviews."},
-  {"content": "The benchmark model endpoint is the local inference host on port 9100."}
+  {"content": "The benchmark model endpoint is the local inference host on port 9100."},
+  {"content": "The nightly backups rotate every seven days."}
 ]

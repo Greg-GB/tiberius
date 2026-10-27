@@ -16,5 +16,6 @@
   {"q": "bob", "via": "probe", "expect": [7]},
   {"q": "docker", "via": "probe", "expect": [7, 12]},
   {"q": "bob", "via": "related", "expect": [7]},
-  {"q": "retrieval review", "via": "reason", "entities": ["Alice", "Search Team"], "expect": [6]}
+  {"q": "retrieval review", "via": "reason", "entities": ["Alice", "Search Team"], "expect": [6]},
+  {"q": "backup rotations", "expect": [16]}
 ]

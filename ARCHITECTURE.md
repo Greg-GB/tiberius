@@ -148,15 +148,24 @@ call: the keyword core is the unrecording `_search`, the public `search` and
 the `_recorded`-wrapped vector paths each record once, and the
 probe/related/reason fallbacks route through the public `search`.
 
-**`search(q, category, min_trust, limit)`** — keyword pipeline:
-1. `_sanitize_fts_query` quotes tokens and joins with ` OR ` (any token may
-   match; FTS5 `rank` is relevance-ordered, most-negative = best).
-2. Candidates: FTS match, `LIMIT 3×limit` (overfetch so later ranking has
+**`search(q, category, min_trust, limit)`** — keyword pipeline. Discovery (candidate
+generation only — Jaccard/HRR still score the *original* query):
+1. `_expand_aliases`: if the query mentions an entity's canonical name or any
+   alias (case-insensitive, word-boundary), the rest of that name set is
+   appended, so facts that only mention the other names become candidates.
+2. FTS match on the expanded query; `_sanitize_fts_query` quotes tokens and
+   joins with ` OR ` (any token may match; FTS5 `rank` is relevance-ordered,
+   most-negative = best).
+3. Prefix fallback: if step 2 returns **zero** candidates, retry with prefix
+   tokens (`"tok"*`), catching inflected stored tokens (fetch/fetches). Never
+   fires when the exact pass found anything — a working candidate set is
+   never diluted.
+4. Candidates: FTS match, `LIMIT 3×limit` (overfetch so later ranking has
    room). FTS5 rank is normalized to [0,1] by |rank|/max_abs.
-3. Per candidate: Jaccard(query tokens, fact tokens) and HRR similarity of
+5. Per candidate: Jaccard(query tokens, fact tokens) and HRR similarity of
    the query text against the fact's content projection (0.5 neutral when
    either vector is missing).
-4. `relevance = 0.4·fts + 0.3·jaccard + 0.3·hrr`, then `× trust`, then
+6. `relevance = 0.4·fts + 0.3·jaccard + 0.3·hrr`, then `× trust`, then
    optional temporal decay (`exp(−ln2 · age_days / half_life)`, off by
    default).
 
@@ -368,10 +377,13 @@ the release workflow publishes on `vX.Y.Z` tags.
 
 - Regex entity/statement extraction: English, static stoplists, greedy AKA
   ceiling — upgrade path is an LLM pass (marked in code).
-- `search` only ranks FTS5 candidates — a query with zero token overlap
-  returns nothing even when HRR vectors would match. HRR reranks within a
-  candidate set, it does not discover; the upstream full-vector-scan
-  discovery mode was dropped with the bundle-rule refactor.
+- `search` discovery is still token-based. Alias expansion + the prefix
+  fallback close the name and inflection gaps, but a true paraphrase with
+  zero word-family overlap still returns nothing: HRR vectors are built from
+  the same exact tokens, so a full-vector scan would discover nothing FTS
+  missed (the upstream full-vector-scan mode was dropped with the bundle-rule
+  refactor for the same reason). Semantic discovery (embeddings/LLM) is out
+  of scope for a local, no-network engine.
 - `hrr.snr_estimate` (bundle-capacity warning) is currently uncalled: the
   per-category bank bundling it guarded was removed with the write path. If
   on-the-fly ctx bundles over large fact sets start degrading, wire it into

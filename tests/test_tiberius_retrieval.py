@@ -111,6 +111,47 @@ def test_find_duplicates_flags_paraphrase_not_distinct(tmp_path):
         store.close()
 
 # ---------------------------------------------------------------------------
+# Discovery passes: alias expansion (candidate generation via entity name sets)
+# and the prefix fallback (inflected tokens when exact FTS finds nothing)
+# ---------------------------------------------------------------------------
+
+def test_search_expands_entity_aliases(tmp_path):
+    """A query that names an entity only by its alias must still reach facts that mention
+    only the canonical name — alias expansion widens FTS candidate generation. The control
+    query proves the target's own words are not what make it reachable."""
+    store = MemoryStore(str(tmp_path / "alias.db"))
+    try:
+        store.add_fact("Redis caches the session tokens for the gateway workers.")
+        store.add_fact("Redis aka KVStore.")  # one entity (Redis) with alias KVStore
+        ret = FactRetriever(store=store)
+
+        results = ret.search("kvstore cluster", limit=5)
+        assert any(r["fact_id"] == 1 for r in results)  # reachable only via KVStore -> Redis
+
+        assert all(r["fact_id"] != 1 for r in ret.search("cluster", limit=5))  # control: no alias named
+    finally:
+        store.close()
+
+
+def test_search_prefix_fallback_on_zero_exact_matches(tmp_path):
+    """Exact tokens miss inflections (backup/backups, rotations/rotate) — when the exact FTS
+    pass finds no candidates at all, the prefix pass rescues the fact; the top hit is still
+    ranked by the unchanged Jaccard/HRR/trust score."""
+    store = MemoryStore(str(tmp_path / "prefix.db"))
+    try:
+        store.add_fact("The nightly backups rotate every seven days.")
+        results = FactRetriever(store=store).search("backup rotations", limit=5)
+        assert results and "backups" in results[0]["content"].lower()
+    finally:
+        store.close()
+
+
+def test_sanitize_fts_query_prefix_variant():
+    assert FactRetriever._sanitize_fts_query("backup rotations", prefix=True) == '"backup"* OR "rotations"*'
+    assert "*" not in FactRetriever._sanitize_fts_query("backup rotations")  # default stays exact
+
+
+# ---------------------------------------------------------------------------
 # Loop-invariant encode hoists (perf) — search/probe/related must encode
 # constant vectors ONCE per call, not once per candidate/row.
 # encode_text/encode_atom are deterministic (SHA-256 counter blocks), so the
