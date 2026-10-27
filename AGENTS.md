@@ -28,6 +28,12 @@ the rules below). The invariants that actually matter:
    short-lived feature branches and pull requests (`gh pr create`); no direct
    pushes to `main` (the protect-main discipline in CONTRIBUTING.md binds
    agent work too).
+7. **Scan before you push.** This is a *public* repo that stores patterns for
+   *personal* memory. Never push a branch, tag, or commit without first
+   scanning what you are about to publish for secrets (tokens, keys, `.env`,
+   `.db`/`.sqlite` files), personal paths, identities, and live memory-store
+   content. Scan the diff for small changes; scan the full history before any
+   visibility change (e.g. private → public). When in doubt, do not push.
 
 Run the core suite and the eval before declaring any retrieval-adjacent
 change done.
