@@ -3,6 +3,7 @@
 import json
 
 from hermes_plugin_tiberius import cli
+from hermes_plugin_tiberius import holographic as hrr
 
 
 def _run(capsys, *argv: str):
@@ -140,6 +141,11 @@ def test_cli_contradict(tmp_path, capsys):
     _run(capsys, "--db", db, "add", "The Tiberius project stores facts in PostgreSQL.")
 
     out = _run(capsys, "--db", db, "contradict", "--threshold", "0.0", "--top", "5")
+    if not hrr._HAS_NUMPY:
+        # contradict is HRR-only by design: content similarity needs vectors, so keyword
+        # mode degrades to empty (no crash, no entity-sharing false positives)
+        assert out["count"] == 0
+        return
     assert out["count"] == 1
     pair = out["results"][0]
     assert "tiberius" in pair["shared_entities"]
