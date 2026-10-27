@@ -187,8 +187,9 @@ the OpenCode plugin.
 Shared heuristic (CLI `extract`, provider `on_session_end`) that turns raw
 user text into candidate facts — one match per category:
 
-- `user_pref`: "I prefer/like/love/use/want/need X", "my favorite/preferred/
-  default <thing> is X", "I always/never/usually X".
+- `user_pref`: "I prefer/like/love/use/want X", "my favorite/preferred/
+  default <thing> is X", "I always/never/usually X". ("I need X" is
+  deliberately not matched — transient asks are not durable preferences.)
 - `project`: "we decided/agreed/chose (to) X", "the project uses/needs/
   requires X".
 - Greedy capture to end-of-line, cut at a sentence-final `?` if one appears,

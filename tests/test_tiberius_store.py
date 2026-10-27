@@ -193,6 +193,38 @@ class TestConcurrency:
             sibling.close()
 
 
+def test_fts_update_trigger_upgraded_to_when_clause(tmp_path):
+    """Older databases have facts_au without the WHEN clause, so trust-only updates
+    (record_feedback) reindex FTS pointlessly. Opening such a store recreates the
+    trigger with the WHEN clause; a fresh database is already current."""
+    old_path = str(tmp_path / "old.db")
+    store = MemoryStore(old_path)
+    try:
+        store._conn.execute("DROP TRIGGER facts_au")
+        store._conn.execute(
+            "CREATE TRIGGER facts_au AFTER UPDATE ON facts BEGIN "
+            "INSERT INTO facts_fts(facts_fts, rowid, content, tags) "
+            "VALUES ('delete', old.fact_id, old.content, old.tags); "
+            "INSERT INTO facts_fts(rowid, content, tags) "
+            "VALUES (new.fact_id, new.content, new.tags); END")
+    finally:
+        store.close()
+
+    upgraded = MemoryStore(old_path)
+    try:
+        sql = upgraded._one("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'facts_au'")["sql"]
+        assert "WHEN old.content" in sql
+    finally:
+        upgraded.close()
+
+    fresh = MemoryStore(str(tmp_path / "fresh.db"))
+    try:
+        sql = fresh._one("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'facts_au'")["sql"]
+        assert "WHEN old.content" in sql  # _SCHEMA already creates it current
+    finally:
+        fresh.close()
+
+
 def test_entity_extraction_covers_single_words_and_drops_sentence_start(tmp_path, db_path):
     """Single proper nouns (Alice, SQLite, Redis) are captured; sentence-initial junk is not."""
     store = MemoryStore(db_path, hrr_dim=64)

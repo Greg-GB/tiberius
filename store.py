@@ -53,7 +53,8 @@ CREATE TRIGGER IF NOT EXISTS facts_ad AFTER DELETE ON facts BEGIN
         VALUES ('delete', old.fact_id, old.content, old.tags);
 END;
 
-CREATE TRIGGER IF NOT EXISTS facts_au AFTER UPDATE ON facts BEGIN
+CREATE TRIGGER IF NOT EXISTS facts_au AFTER UPDATE ON facts
+    WHEN old.content IS NOT new.content OR old.tags IS NOT new.tags BEGIN
     INSERT INTO facts_fts(facts_fts, rowid, content, tags)
         VALUES ('delete', old.fact_id, old.content, old.tags);
     INSERT INTO facts_fts(rowid, content, tags)
@@ -160,6 +161,7 @@ class MemoryStore:
             except sqlite3.OperationalError:
                 pass  # journal mode unsupported on this filesystem — default journal still works
         self._conn.executescript(_SCHEMA)
+        self._upgrade_fts_update_trigger()
         if "hrr_vector" not in {row[1] for row in self._conn.execute("PRAGMA table_info(facts)").fetchall()}:
             try:
                 from hermes_cli.sqlite_util import add_column_if_missing
@@ -168,6 +170,23 @@ class MemoryStore:
                 self._conn.execute("ALTER TABLE facts ADD COLUMN hrr_vector BLOB")
         self._conn.commit()
         self._backfill_vectors()
+
+    def _upgrade_fts_update_trigger(self) -> None:
+        """One-time upgrade for older databases: their facts_au trigger (created before the
+        WHEN clause existed) reindexes FTS on every UPDATE — including the trust-only writes
+        from record_feedback. New databases already get the WHEN clause from _SCHEMA."""
+        row = self._one("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'facts_au'")
+        if row is not None and "WHEN old.content" in (row["sql"] or ""):
+            return
+        self._conn.execute("DROP TRIGGER IF EXISTS facts_au")
+        self._conn.execute(
+            "CREATE TRIGGER facts_au AFTER UPDATE ON facts "
+            "WHEN old.content IS NOT new.content OR old.tags IS NOT new.tags BEGIN "
+            "INSERT INTO facts_fts(facts_fts, rowid, content, tags) "
+            "VALUES ('delete', old.fact_id, old.content, old.tags); "
+            "INSERT INTO facts_fts(rowid, content, tags) "
+            "VALUES (new.fact_id, new.content, new.tags); END")
+        self._conn.commit()
 
     def _one(self, sql: str, params=()):
         return self._conn.execute(sql, params).fetchone()
@@ -377,7 +396,7 @@ class MemoryStore:
 # Shared by the Hermes plugin (session-end auto-extract) and the CLI (`extract` command), so every
 # harness extracts with the same heuristics.
 _EXTRACT_PATTERNS = (
-    ([re.compile(r'\bI\s+(?:prefer|like|love|use|want|need)\s+(.+)', re.IGNORECASE),
+    ([re.compile(r'\bI\s+(?:prefer|like|love|use|want)\s+(.+)', re.IGNORECASE),
       re.compile(r'\bmy\s+(?:favorite|preferred|default)\s+\w+\s+is\s+(.+)', re.IGNORECASE),
       re.compile(r'\bI\s+(?:always|never|usually)\s+(.+)', re.IGNORECASE)], "user_pref"),
     ([re.compile(r'\bwe\s+(?:decided|agreed|chose)\s+(?:to\s+)?(.+)', re.IGNORECASE),
