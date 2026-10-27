@@ -22,21 +22,22 @@ other way around.
 
 ## Data model
 
-Four tables (`store.py:_SCHEMA`, idempotent `IF NOT EXISTS`):
+Five tables (`store.py:_SCHEMA`, idempotent `IF NOT EXISTS`):
 
 - **facts** — `content TEXT UNIQUE NOT NULL`, `category`, `tags`, `trust_score`
   (default 0.5), `hrr_vector BLOB`, timestamps. The unique content column is
   the dedupe key: `add_fact` returns the existing id instead of duplicating.
-- **entities** — `name` with `COLLATE NOCASE` (case-insensitive identity),
-  comma-joined `aliases`, usage count.
+- **entities** — `name` (identity is case-insensitive: lookups use
+  `COLLATE NOCASE`), comma-joined `aliases` (written only by AKA clauses).
 - **fact_entities** — the fact↔entity join; the *source of truth* for
   compositional queries.
 - **facts_fts** — FTS5 **external-content** table over `facts(content)`. The
   `facts_ai`/`facts_ad`/`facts_au` triggers keep it in sync on
   insert/delete/update. Never write FTS content by hand.
-- **memory_banks** — one `cat:{category}` row per category holding the
-  bundle of that category's fact vectors (used by `probe` for set-level
-  context). Rebuilt wholesale on any change to that category.
+- **memory_banks** — legacy table from upstream (where `probe` read the
+  category bank). No longer read or written: composition happens in the
+  `fact_entities` graph and context is bundled on the fly. Kept in the
+  schema so existing databases stay untouched.
 
 **Trust model.** New facts start at 0.5. `record_feedback` applies
 `+0.05` per helpful, `−0.10` per unhelpful (asymmetric — decay should outpace
@@ -73,24 +74,27 @@ partially-initialized entry can't be half-seen by a second opener).
 A deterministic regex pass — not an LLM — run automatically on every
 `add_fact`:
 
-- Proper-noun phrases: 1–4 words, each starting uppercase (or an
-  all-caps-single-word like `API` is *excluded*; `McDonald`-style initials
-  pass), first word capitalized, not in the stoplist (`_STOPWORD_FIRST_WORDS`
-  / `_STOPWORD_LAST_WORDS`), not starting with a sentence opener
-  (`_SENTENCE_STARTERS`).
-- Quoted names: `"..."`, `'...'`, `` `...` ``.
-- `aka` clauses: `... aka "X" ...` adds X as an **alias**, not an entity.
-  Known ceiling (marked in code): the entity pattern is greedy and can
-  swallow a clause before the alias when the entity has no space
-  (`Docker aka "Dkr"` → alias `Dkr` is missed). Upgrade path: LLM extraction.
-- Dedupe is case-insensitive; the **first-seen spelling wins** and later
-  spellings are recorded as aliases via `_add_alias` (comma-joined, guarded
-  against duplicates and 128-char rows).
-- Resolution (`_resolve_entity`): name (NOCASE) → alias (`LIKE`, which is
-  case-insensitive for ASCII by SQLite default) → create. Never duplicates.
+- Multi-word proper-noun phrases: 2+ words, each starting uppercase
+  (sentence-initial junk like "In The" / "We Decided" is dropped when the
+  first word is in the static `_ENTITY_STOPWORDS` list).
+- Single capitalized words: 4+ chars with at least one lowercase after the
+  first (`API`-style all-caps is excluded as an acronym), stoplist-filtered.
+- Quoted terms: `"..."`, `'...'` — kept verbatim, stoplist skipped (explicit
+  intent).
+- `aka` clauses: `X aka Y` (lowercase `aka` / `also known as`; Y is ONE
+  unquoted word) links ONE entity (X) and records Y as its alias via
+  `_add_alias`, so either name resolves to the same entity. Matches inside
+  an AKA span are excluded from the generic pass.
+- Dedupe is case-insensitive, first-seen spelling wins. Case variants of a
+  known entity resolve to it (name lookup is NOCASE) — no alias is recorded
+  for them; aliases come only from AKA clauses.
+- Resolution (`_resolve_entity`): exact name (NOCASE) → alias (`LIKE`, which
+  is case-insensitive for ASCII by SQLite default) → create.
 
-The stoplists are static and English-centric; that's the documented cost of
-the regex approach. The golden fixture exercises the tricky cases.
+Known ceilings (marked in code): the AKA entity pattern is greedy and can
+swallow a clause before `aka`; multi-word aliases miss; the stoplist is
+static and English-centric. Upgrade path: LLM extraction. The golden
+fixture exercises the tricky cases.
 
 ## HRR — and the bundle rule
 
@@ -101,7 +105,8 @@ across machines and Python versions — no RNG state).
 - `bind(a, b) = (a + b) % 2π` (circular convolution)
 - `unbind(m, k) = (m − k) % 2π` (circular correlation)
 - `bundle(*v) = circular mean` (superposition) — holds O(√dim) items before
-  similarity degrades; `snr_estimate` warns below SNR 2.0
+  similarity degrades; `snr_estimate` computes √(dim/n) and warns below 2.0
+  (currently uncalled — see Known gaps)
 - `similarity(a, b) = mean(cos(a − b))` ∈ [−1, 1]
 - `encode_fact` = `bundle(bind(text, ROLE_CONTENT), bind(entity_i, ROLE_ENTITY)...)`
 
@@ -111,7 +116,7 @@ across machines and Python versions — no RNG state).
 bundle. Therefore compositional queries (which facts touch entities X and Y)
 are answered by the **SQL entity graph** (`fact_entities` intersections in
 `retrieval.reason`), and HRR vectors only *rank within* the composed set.
-The one that in `search()`'s docstring and the probe docstring.
+The one exception is noted in `search()`'s docstring and the probe docstring.
 
 The one sanctioned soft use: `search()` unbinds `ROLE_CONTENT` from the fact
 vector and scores the *approximate* content projection against the query —
@@ -127,14 +132,15 @@ writes at dim=1 fall back to raw float64 to keep reads unambiguous — don't
 
 **numpy is optional.** Without it: atoms/vectors are NULL, search degrades to
 FTS5+Jaccard (HRR term neutral at 0.5), entity composition still works
-(SQL). A store opened with a dim that differs from its stored vectors keeps
-the stored dim and warns; NULL vectors get backfilled on open
+(SQL). A store opened with a dim that differs from its stored vectors
+treats those blobs as unvectorized (skipped, not fatal); NULL vectors get
+backfilled on open
 (`test_backfill_computes_vectors_for_null_rows`).
 
 ## Retrieval flows (`retrieval.py`)
 
-All methods: canonicalize (probe/related/reason) → SQL → rank →
-`_row` (drops `hrr_vector` from output — BLOBs never leak to callers).
+All methods: canonicalize (probe/related/reason) → SQL → rank; results are
+plain dicts with `hrr_vector` dropped (BLOBs never leak to callers).
 
 **`search(q, category, min_trust, limit)`** — keyword pipeline:
 1. `_sanitize_fts_query` quotes tokens and joins with ` OR ` (any token may
@@ -148,11 +154,14 @@ All methods: canonicalize (probe/related/reason) → SQL → rank →
    optional temporal decay (`exp(−ln2 · age_days / half_life)`, off by
    default).
 
-**`probe(entity)`** — canonicalize → all fact ids linked to the entity →
-set context = bundle of those fact vectors (from `memory_banks`
-`cat:{category}` when all ids share one category) → rank the set's facts by
-content centrality to that context. (The old per-fact unbind-of-set-context
-returned noise — that's how the bundle rule got earned.)
+**`probe(entity)`** — canonicalize (alias → canonical name) → all fact ids
+linked to the entity (SQL) → set context = bundle of those fact vectors,
+computed on the fly from the linked rows → rank the set's facts by content
+centrality to that context. Falls back to `search` without numpy or when
+nothing is linked. (The upstream design unbound a probe key from each fact
+vector's bundle — algebraically meaningless, and it ranked longer/higher-
+trust unrelated facts above the entity's own fact. That's how the bundle
+rule got earned.)
 
 **`related(entity)`** — the entity's own facts ∪ one hop (facts sharing any
 of the entity's other linked facts' entities) → same centrality ranking.
@@ -164,8 +173,9 @@ set sizes here).
 intersection → rank. Falls back to a joined-name `search` when no entity
 resolves or the intersection is empty.
 
-**`contradict(entity, limit)`** — memory-hygiene tool: pairs up to the 500
-most-recently-updated facts sharing the entity, scores
+**`contradict(category, threshold, limit)`** — memory-hygiene tool: pairs
+up to the 500 most-recently-updated facts (optionally category-filtered)
+sharing any entity, scores
 `overlap · (1 − shift(sim))` where overlap is entity-set Jaccard (≥ 0.3
 gate) and shift maps cosine to [0,1]; reports pairs with near-opposite
 vectors and overlapping topics. O(n²) by design, capped. Currently exposed
@@ -177,9 +187,10 @@ the OpenCode plugin.
 Shared heuristic (CLI `extract`, provider `on_session_end`) that turns raw
 user text into candidate facts — one match per category:
 
-- `user_pref`: "I (really|very) (prefer|want|like|would like) X" → category
-  `user_pref`; `project`: "the project uses X" / "we decided to use X" →
-  `project`.
+- `user_pref`: "I prefer/like/love/use/want/need X", "my favorite/preferred/
+  default <thing> is X", "I always/never/usually X".
+- `project`: "we decided/agreed/chose (to) X", "the project uses/needs/
+  requires X".
 - Greedy capture to end-of-line, cut at a sentence-final `?` if one appears,
   20-char minimum, 400-char cap. Imperative-flavored, English-only — the
   LLM pass is the documented upgrade.
@@ -215,9 +226,10 @@ user text into candidate facts — one match per category:
 
 **CLI (`cli.py`).** The subprocess surface. DB resolution: `--db` >
 `$TIBERIUS_DB` > `~/.tiberius/memory.db`. Commands: search/probe/related/
-reason/add/feedback/extract. Contract: **JSON on stdout, exit 0**; errors
-(e.g. unknown fact_id in feedback) are `{"error": ...}` + exit 1 — no
-tracebacks (callers parse stdout as JSON unconditionally).
+reason/add/feedback/remove/extract. Contract: **JSON on stdout, exit 0**;
+errors (unknown fact_id, empty add content, sqlite-level failures) are
+`{"error": ...}` + exit 1 — no tracebacks (callers parse stdout as JSON
+unconditionally).
 
 **OpenCode (`opencode/index.ts`).** Native V2 plugin; every operation shells
 out to `cli.py` (the core never runs inside the node process).
@@ -276,11 +288,13 @@ end-to-end. Verified payload shapes (these were the untested assumptions):
   (`eval/fixture.json`, fictional 'Acme stack' — this repo is public and
   must never contain real user memory). Baseline: recall@1 18/18,
   recall@3 18/18. Run `python eval/run_eval.py` (fixture) or pass a DB
-  path for a live store (copied, never mutated). **A retrieval change that
+  path for a live store (backed up via SQLite's backup API, never mutated).
+  **A retrieval change that
   moves these numbers is a regression until proven otherwise.**
 
-CI runs the core suite + fixture eval on every push (job `tests`); the
-release workflow publishes on `vX.Y.Z` tags.
+CI runs the core suite + fixture eval on every push (job `tests`), plus a
+`plugin` job for the OpenCode adapter (`npm ci`, typecheck, unit tests);
+the release workflow publishes on `vX.Y.Z` tags.
 
 ## Pitfalls for the next agent
 
@@ -307,9 +321,11 @@ release workflow publishes on `vX.Y.Z` tags.
    desyncs search.
 8. **Never put personal data in fixtures/eval/tests.** This repo is public.
    The Acme stack is synthetic on purpose.
-9. **The gateway loads the install copy** (`plugins/tiberius`), not the git
-   repo. After pushing, re-sync it; the running gateway needs a restart to
-   pick up code changes.
+9. **OpenCode loads the repo itself** — the project-level `opencode.json`
+   points `plugins` at the repo's `opencode/` dir; there is no install copy
+   to re-sync (the old `~/.config/opencode/plugins/tiberius` copy was
+   deleted). A Hermes deployment that installs the plugin into a gateway
+   copy still needs a re-sync + gateway restart after a push.
 10. **The OpenCode plugin is runtime-verified on OpenCode 2.0.28**
     (2026-10-26): all six tools, context injection, and event-driven
     extraction were observed working end-to-end; the verified payload
@@ -327,6 +343,14 @@ release workflow publishes on `vX.Y.Z` tags.
 
 - Regex entity/statement extraction: English, static stoplists, greedy AKA
   ceiling — upgrade path is an LLM pass (marked in code).
+- `search` only ranks FTS5 candidates — a query with zero token overlap
+  returns nothing even when HRR vectors would match. HRR reranks within a
+  candidate set, it does not discover; the upstream full-vector-scan
+  discovery mode was dropped with the bundle-rule refactor.
+- `hrr.snr_estimate` (bundle-capacity warning) is currently uncalled: the
+  per-category bank bundling it guarded was removed with the write path. If
+  on-the-fly ctx bundles over large fact sets start degrading, wire it into
+  `_ctx_bundle`.
 - `contradict` not in CLI/OpenCode — add when hygiene is needed from
   another harness.
 - `related()` hop filter is N SELECTs (ponytail: fine for current set sizes).
