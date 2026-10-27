@@ -35,7 +35,9 @@ projects, and tools. Nothing leaves the machine.
   `I should always X` (imperatives get re-read as directives later).
 - **Search before adding.** Update a stale fact in place instead of storing
   a duplicate — `update` keeps the id, entity links, and retrieval history.
-  `remove` only for facts that are wrong or obsolete.
+  `remove` only for facts that are wrong or obsolete. `add` reports
+  `possible_duplicates` (near-identical prior facts) — if you agree one is a
+  duplicate, `remove` the older.
 
 ## Feedback — train the store
 
