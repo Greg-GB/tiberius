@@ -18,7 +18,7 @@ See [What's changed](#whats-changed-vs-upstream).
 ## A note on provenance
 
 Tiberius was developed alongside a local LLM (an AI coding agent) and human
-review. The whole codebase is ~1,400 lines across six files — small enough
+review. The whole codebase is ~1,750 lines across six files — small enough
 to read in one sitting — and every push is gated in CI by a 47-test core
 suite, 12 plugin unit tests, and a 19-query golden recall eval. But it will
 store **your personal memory**: read the code and verify the parts you rely

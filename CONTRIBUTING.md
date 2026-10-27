@@ -55,10 +55,8 @@ commits — this repo has no `Co-authored-by:` trailer convention.
 - `main` is the trunk; short-lived feature branches per PR. No long-lived
   dev branch — this is a solo-maintained repo, not a release train.
 - `main` is protected by the `protect-main` ruleset: changes land via PR
-  with a green `tests` check. GitHub does not enforce rulesets on *private*
-  repos of personal Free accounts — the policy is binding discipline while
-  the repo is private and hard-enforced once it is public. The owner can
-  bypass the ruleset by default; that is the approval gate.
+  with a green `tests` check. The owner can bypass the ruleset by default;
+  that is the approval gate.
 - Releases are `vX.Y.Z` tags cut from `main` (semver: fix = patch, new
   command/adapter = minor, DB schema change = major). Pushing the tag
   auto-publishes the GitHub Release with commit-generated notes
