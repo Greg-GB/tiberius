@@ -268,12 +268,12 @@ needs your answers before the Hermes adapter is written.
   dirs, floor/turn/dedupe/re-offer, line rendering, feedback incl. re-session
   and uncatalog, detector shapes, zero-behavior-change) + 2 recursive-scan
   tests in `tests/test_tiberius_skill_sync.py`.
-- **Live gate (still open):** restart the Hermes gateway with
-  `skill_dirs: [$HERMES_HOME/skills]` configured, then check the log for the
-  `tiberius skill-sync: N skills` line at session start and the skills block
-  in a turn's prefetch. Verified against real data pre-restart: 114 of 120
-  `SKILL.md` sync (5 in hidden `.archive/`, 1 skipped — no frontmatter
-  description).
+- **Live gate (verified 2026-10-28):** gateway restart with
+  `skill_dirs: [$HERMES_HOME/skills]` logged `tiberius skill-sync: 114 skills
+  (114 added, 0 updated, 0 unchanged, 1 skipped)` at session start, and the
+  trust floor (top-2) injected into the live session's context. Matches the
+  pre-restart dry run: 114 of 120 `SKILL.md` (5 in hidden `.archive/`, 1
+  skipped — no frontmatter description).
 
 ### Concerns / notes
 
@@ -385,7 +385,7 @@ stopword list is a core change and needs the eval gate — deliberately not v1).
 | 0 | Spike (§6) | OpenCode | recall@5 ≥ 80% |
 | 1 | `skill-sync` CLI subcommand + tests (synthetic fixture skill dirs in tmp_path — fictional-content rule, same as the eval fixture) — **done 2026-10-27** (`c0f9ba5`) | OpenCode (shared artifact — write it first; both harnesses depend on it) | Core suite green (58 passed); idempotency test present; golden eval unchanged (19/19 @1, @3) |
 | 2 | OpenCode plugin: options, both blocks, two tools, feedback detection, tests — **done 2026-10-28** (`d942209`) | OpenCode | Plugin suite green (27 passed, typecheck clean); zero behavior change with options unset (asserted by test — exact engine-call sequence + tool count); core gates unchanged (58 tests, 19/19 @1 and @3) |
-| 3 | Hermes provider: prefetch block, config, feedback detection — **done 2026-10-28** (recursive-discovery fix to Phase 1 included; live-gateway log check still open, see §4) | Hermes (after Q1–Q6 answered) | Provider tests in a Hermes env (14 tests); core suite 101 passed; golden eval 19/19 @1, @3 |
+| 3 | Hermes provider: prefetch block, config, feedback detection — **done 2026-10-28** (recursive-discovery fix to Phase 1 included; live gate verified same day: 114 skills synced, floor injected) | Hermes (after Q1–Q6 answered) | Provider tests in a Hermes env (14 tests); core suite 101 passed; golden eval 19/19 @1, @3 |
 | 4 | Later: ranking refinements (body head in the retrieval surface, trigger-phrase frontmatter), per-turn feedback events, one shared skill registry across both harnesses, native index shaping via `ctx.skill` (lead in §5) | whichever | — |
 
 **every** commit that touches the core runs the core suite + golden eval
