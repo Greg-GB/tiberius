@@ -170,6 +170,13 @@ Config in `config.yaml` under `plugins.tiberius`:
 | `skills_top` | `3` (when `skill_dirs` set) | per-turn skill block: top-k for the current query (new skills only — deduped per session, shared with the floor) |
 | `skills_floor` | `2` (when `skill_dirs` set) | session-start skill block: top-N catalog skills by trust |
 
+Optional: the repo's cross-harness usage skill
+(`skills/tiberius-usage/SKILL.md`) teaches the agent how to use the memory
+well — recall before answering, store only durable facts, rate recall
+quality. Put it where Hermes discovers skills (e.g. symlink it into
+`$HERMES_HOME/skills/`); with `skill_dirs` set it also joins the ranked
+skill catalog.
+
 ### Uninstall
 
 1. Remove `tiberius` from `plugins.enabled` in `config.yaml` — and switch the
