@@ -20,6 +20,11 @@ Python 3.11+.
 - **Provider** tests import Hermes core (`agent`, `hermes_cli`, ...) and only
   run in an environment where Hermes is installed; `tests/conftest.py` skips
   their collection outside one, so the plain command above stays green.
+- **Provider tests are not part of CI** (their dependency is not available
+  in public CI) — a green CI build does not cover `provider.py`. Provider
+  changes are gated by a local run in a Hermes environment: `python -m
+  pytest -q` there (the `HERMES_AGENT_REPO` recipe is in the
+  `tests/conftest.py` docstring).
 
 ## Quality gate (non-negotiable for retrieval changes)
 
