@@ -23,6 +23,10 @@ projects, and tools. Nothing leaves the machine.
   an answer that contradicts a stored decision.
 - **What was just recorded?** `list` with `since` (`24h`, `7d`, or an ISO
   date) — recent facts by time, not by keyword.
+- **Conflicting recall:** if recalled facts disagree about the same thing,
+  don't silently pick the higher-ranked one — ask which is current, then
+  `update` or `remove` the stale one. A surfaced contradiction is cheaper
+  than a confident wrong answer.
 - If recall returns nothing relevant, answer normally. Do not loop on
   rephrasings — one retry at most.
 
