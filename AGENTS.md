@@ -17,9 +17,10 @@ the rules below). The invariants that actually matter:
    parts). Unbinding a phase key from a bundle is algebraically meaningless.
    Composition (probe/related/reason) happens in the SQL entity graph; HRR
    only ranks within the composed set. Do not "fix" retrieval by unbinding.
-4. **Tests.** Core suite (`test_tiberius_store`, `test_tiberius_retrieval`,
-   `test_tiberius_cli`) runs anywhere: `python -m pytest -q`. Provider tests
-   need a Hermes environment. Never add network calls to tests.
+4. **Tests.** `python -m pytest -q` runs anywhere: it collects the core suite
+   in every environment; provider tests (which import Hermes-environment
+   modules) are skipped outside one — see `tests/conftest.py`. Never add
+   network calls to tests.
 5. **No secrets, no network.** This is a local-memory project. Nothing here
    may phone home; do not add telemetry, update checks, or external endpoints.
 6. **Commits and PRs.** Normal commits, author is the actual human (or their

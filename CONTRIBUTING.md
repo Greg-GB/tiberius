@@ -16,10 +16,10 @@ Python 3.11+.
 
 ## Tests
 
-- **Core** (`test_tiberius_store`, `test_tiberius_retrieval`, `test_tiberius_cli`)
-  run anywhere with pytest alone.
+- **Core** tests run anywhere with pytest alone: `python -m pytest -q`.
 - **Provider** tests import Hermes core (`agent`, `hermes_cli`, ...) and only
-  run in an environment where Hermes is installed.
+  run in an environment where Hermes is installed; `tests/conftest.py` skips
+  their collection outside one, so the plain command above stays green.
 
 ## Quality gate (non-negotiable for retrieval changes)
 

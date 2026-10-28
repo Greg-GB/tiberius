@@ -19,9 +19,11 @@ jobs:
           python-version: "3.11"
       - name: Install deps
         run: python -m pip install -q pytest "numpy>=1.26,<3"
-      # Core suite only: provider tests need a Hermes environment (see CONTRIBUTING.md).
+      # Bare-environment collection: provider tests are skipped outside a
+      # Hermes environment (tests/conftest.py), so this runs the core suite
+      # and everything else that collects here — no file list to maintain.
       - name: Core test suite
-        run: python -m pytest -q tests/test_tiberius_store.py tests/test_tiberius_retrieval.py tests/test_tiberius_cli.py
+        run: python -m pytest -q
       # Golden eval against the committed synthetic fixture (CI-safe, no live DB).
       - name: Golden eval (fixture)
         run: python eval/run_eval.py

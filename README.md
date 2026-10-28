@@ -20,8 +20,8 @@ See [What's changed](#whats-changed-vs-upstream).
 
 Tiberius was developed alongside a local LLM (an AI coding agent) and human
 review. The whole codebase is ~2,350 lines across six files — small enough
-to read in one sitting — and every push is gated in CI by a 60-test core
-suite, 29 plugin unit tests, and a 19-query golden recall eval. But it will
+to read in one sitting — and every push is gated in CI by the core test
+suite, the plugin unit tests, and a 19-query golden recall eval. But it will
 store **your personal memory**: read the code and verify the parts you rely
 on before you trust it with your data.
 
@@ -106,10 +106,10 @@ Files:
 - **Near-duplicate detection**: `add` reports `possible_duplicates` (token-overlap over
   the FTS candidate pool) — report-only, the caller removes if it agrees; the store
   never blocks a write.
-- **Quality gates**: a 60-test core suite (incl. the skill-sync tests), 29 plugin
-  unit tests, Hermes-provider tests (need a Hermes environment), and a 19-query
-  golden recall eval (`eval/`) that any retrieval change must not regress (fixture
-  baseline recall@1 19/19, recall@3 19/19).
+- **Quality gates**: the core test suite (runs anywhere — `python -m pytest -q`),
+  the plugin unit tests, Hermes-provider tests (need a Hermes environment), and
+  a 19-query golden recall eval (`eval/`) that any retrieval change must not
+  regress (fixture baseline recall@1 19/19, recall@3 19/19).
 
 ## Prerequisites
 

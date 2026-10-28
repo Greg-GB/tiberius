@@ -17,6 +17,24 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(HERMES_AGENT_REPO) not in sys.path:
     sys.path.insert(0, str(HERMES_AGENT_REPO))
 
+# Test modules that import modules only present in a Hermes environment.
+# Outside one they fail at collection (ImportError), so skip them: bare
+# `python -m pytest -q` runs the core suite anywhere, and the full suite in a
+# Hermes environment (where the named modules import). A new provider test
+# file must be added to _HERMES_ONLY_TESTS or CI goes red — loud, by design.
+_HERMES_ONLY_TESTS = {
+    "test_tiberius_auto_extract.py": "agent",
+    "test_tiberius_hermes_skills.py": "hermes_yaml",
+    "test_tiberius_profile_db_path.py": "hermes_yaml",
+    "test_tiberius_save_config.py": "hermes_yaml",
+    "test_tiberius_shutdown_closes_db.py": "hermes_yaml",
+}
+collect_ignore = [
+    name
+    for name, module in _HERMES_ONLY_TESTS.items()
+    if importlib.util.find_spec(module) is None
+]
+
 PACKAGE = "hermes_plugin_tiberius"
 if PACKAGE not in sys.modules:
     _spec = importlib.util.spec_from_file_location(
