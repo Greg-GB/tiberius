@@ -4,9 +4,10 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](pyproject.toml)
 [![Tests](https://github.com/Greg-GB/tiberius/actions/workflows/tests.yml/badge.svg)](.github/workflows/tests.yml)
 
-Local SQLite memory engine: structured facts, FTS5 search, entity graph, trust scoring, and
-HRR-based compositional retrieval. Harness-agnostic core with one adapter per harness —
-**no network, no service**: every harness runs the engine locally against its own DB file.
+Local SQLite memory engine: structured facts, skill retrieval, FTS5 search, entity graph, trust
+scoring, and HRR-based compositional retrieval. Harness-agnostic core with one adapter per
+harness — **no network, no service**: every harness runs the engine locally against its own
+DB file.
 
 Tiberius is a fork of [hermes-plugin-holographic](https://github.com/NousResearch/hermes-plugin-holographic)
 (Nous Research, MIT) — the HRR core is kept, but it is decoupled from a single harness: it runs
@@ -18,9 +19,9 @@ See [What's changed](#whats-changed-vs-upstream).
 ## A note on provenance
 
 Tiberius was developed alongside a local LLM (an AI coding agent) and human
-review. The whole codebase is ~1,750 lines across six files — small enough
-to read in one sitting — and every push is gated in CI by a 47-test core
-suite, 12 plugin unit tests, and a 19-query golden recall eval. But it will
+review. The whole codebase is ~2,350 lines across six files — small enough
+to read in one sitting — and every push is gated in CI by a 60-test core
+suite, 29 plugin unit tests, and a 19-query golden recall eval. But it will
 store **your personal memory**: read the code and verify the parts you rely
 on before you trust it with your data.
 
