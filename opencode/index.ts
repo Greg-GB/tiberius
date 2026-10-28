@@ -515,7 +515,8 @@ export default Plugin.define({
           const fresh = freshInjectionFacts(r?.results ?? [], seen, 3);
           for (const f of fresh) seen.add(f.fact_id);
           if (fresh.length) {
-            event.system.push({ type: "text", text: `Relevant stored memory (search with the memory_search tool for more):\n${fresh.map((f) => `- [${f.fact_id}] ${f.content}`).join("\n")}` });
+            const more = typeof r?.total === "number" && r.total > fresh.length ? ` (store has ${r.total} matches)` : "";
+            event.system.push({ type: "text", text: `Relevant stored memory${more} (search with the memory_search tool for more):\n${fresh.map((f) => `- [${f.fact_id}] ${f.content}`).join("\n")}` });
           }
         } catch { /* memory must never break model dispatch */ }
         return;
@@ -529,7 +530,8 @@ export default Plugin.define({
         const r = await runEngine(engine, baseArgs, ["search", query, "--top", String(opts.injectTop ?? 4)], undefined, env);
         const facts = (r?.results ?? []).map((f) => `- [${f.fact_id}] ${f.content}`);
         if (facts.length) {
-          event.system.push({ type: "text", text: `Relevant stored memory (search with the memory_search tool for more):\n${facts.join("\n")}` });
+          const more = typeof r?.total === "number" && r.total > facts.length ? ` (store has ${r.total} matches)` : "";
+          event.system.push({ type: "text", text: `Relevant stored memory${more} (search with the memory_search tool for more):\n${facts.join("\n")}` });
         }
       } catch { /* memory must never break model dispatch */ }
     });

@@ -69,6 +69,19 @@ class FactRetriever:
         call _search directly so each recall counts its returned facts exactly once."""
         return self._recorded(self._search(query, category, min_trust, limit))
 
+    def match_count(self, query: str, category: str | None = None, min_trust: float = 0.3) -> int:
+        """How many facts match a query at or above min_trust — the prefetch coverage counter.
+        Counts the FTS candidate pool (same exact-then-prefix fallback as _search) with no HRR
+        rerank and no retrieval recording, so the usage signal stays clean.
+        ponytail: counts the FTS pool, not the reranked _search output; if _search ever filters
+        by score, recount through it."""
+        with self.store._lock:
+            expanded = self._expand_aliases(query)
+            n = len(self._fts_candidates(expanded, category, min_trust, 10_000))
+            if n == 0:
+                n = len(self._fts_candidates(expanded, category, min_trust, 10_000, prefix=True))
+            return n
+
     def find_duplicates(self, content: str, new_id: int, threshold: float = 0.5, limit: int = 3) -> list[dict]:
         """Near-duplicate candidates for a just-added fact (report-only — the caller decides;
         a memory store must never silently refuse to save). Candidate generation reuses the FTS

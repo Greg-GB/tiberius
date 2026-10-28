@@ -253,7 +253,13 @@ class TiberiusMemoryProvider(MemoryProvider):
             results = self._retriever.search(query, min_trust=self._min_trust, limit=5)
             lines = [f"- [{r.get('trust_score', r.get('trust', 0)):.1f}] {r.get('content', '')}" for r in results]
             if results:
-                parts.append("## Tiberius Memory\n" + "\n".join(lines))
+                # Coverage counter: an unmarked 5-fact block reads as the whole story, which is
+                # what makes the agent answer from context instead of recalling. Show the window.
+                header = "## Tiberius Memory"
+                total = self._retriever.match_count(query, min_trust=self._min_trust)
+                if total > len(results):
+                    header += f" ({len(results)} of {total} match — fact_store search has the rest)"
+                parts.append(header + "\n" + "\n".join(lines))
         except Exception as e:
             logger.debug("Tiberius prefetch failed: %s", e)
         if self._skills_enabled:

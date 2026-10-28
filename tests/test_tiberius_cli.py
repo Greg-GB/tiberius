@@ -21,6 +21,18 @@ def test_cli_roundtrip(tmp_path, capsys):
     assert "hrr_vector" not in out["results"][0]  # BLOBs never leak into CLI output
 
 
+def test_cli_search_reports_total_pool(tmp_path, capsys):
+    """search output carries 'total' (full matching pool) so callers can tell a window
+    from the whole; 'count' stays the number returned. Non-search commands are untouched."""
+    db = str(tmp_path / "c.db")
+    for i in range(7):
+        _run(capsys, "--db", db, "add", f"The widget factory shipped batch {i} to the docks.")
+    out = _run(capsys, "--db", db, "search", "widget factory", "--top", "3")
+    assert out["count"] == 3 and out["total"] == 7
+    out = _run(capsys, "--db", db, "probe", "widget factory")
+    assert "total" not in out
+
+
 def test_cli_probe_and_extract(tmp_path, capsys, monkeypatch):
     db = str(tmp_path / "m.db")
     _run(capsys, "--db", db, "add", "The deploy pipeline uses Docker on the build host.")
