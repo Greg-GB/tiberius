@@ -277,6 +277,23 @@ needs your answers before the Hermes adapter is written.
 
 ### Concerns / notes
 
+- **Cold-start floor (decision 2026-10-28, with the user):** no seeding of initial
+  trust — no LLM prior, no "educated guess" ranking. Trust is evidence: a guess
+  written in as a prior is laundered into evidence the feedback loop can never
+  distinguish from observed usage (±0.05/session is too slow to wash a prior out).
+  A fresh install ties everything at default trust, so the one-shot floor is
+  insertion-ordered until the first session-end feedback — an honest tie, bounded
+  to a 2-line one-shot, self-correcting within a few sessions. In-session "live
+  re-ranking" was rejected on the same terms: a just-loaded skill is already in
+  the agent's context, and the retrieval layer's job (surfacing skills the agent
+  does NOT have) is better served by the per-turn query signal than by recency.
+  Phase-4 candidate if the static floor is ever observed missing something:
+  **rolling floor** — per-turn top-N of skills not yet shown this session, still
+  capped at N lines total (dedup intact, no re-emission). Revisit triggers:
+  (a) floor still uninformative ~1 week after install → backfill trust from
+  observed `skill_view` counts in session history (real data, one-off CLI — a
+  prior in disguise fails the evidence test above); (b) a watched floor miss →
+  rolling floor.
 - If Q2 = "no", treat Hermes exactly like OpenCode (coexistence): the value prop
   is ranking + trust + the search channel, not token savings.
 - The trust floor uses `list --category skill --top N` (verified working today).
