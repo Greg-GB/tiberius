@@ -48,6 +48,9 @@ projects, and tools. Nothing leaves the machine.
   (file contents, versions, current time), one-off instructions.
 - One fact per call, present-tense declarative: `User prefers X`, never
   `I should always X` (imperatives get re-read as directives later).
+- **Keep facts small and specific**: one statement per fact. A fact that
+  keeps growing (project state, a running log) has outlived its shape —
+  split it into several small facts and update them independently.
 - **Search before adding.** Update a stale fact in place instead of storing
   a duplicate — `update` keeps the id, entity links, and retrieval history.
   `remove` only for facts that are wrong or obsolete. `add` reports
