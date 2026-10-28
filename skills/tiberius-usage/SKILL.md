@@ -21,6 +21,9 @@ projects, and tools. Nothing leaves the machine.
   session's context.
 - **When in doubt, search**: one local call (~200ms). A miss is cheaper than
   an answer that contradicts a stored decision.
+- **A marked memory block is a window, not the whole.** When prefetched facts
+  carry a `(5 of N match — …)` header, more stored facts match the same query —
+  search it before answering definitively.
 - **What was just recorded?** `list` with `since` (`24h`, `7d`, or an ISO
   date) — recent facts by time, not by keyword.
 - **Conflicting recall:** if recalled facts disagree about the same thing,
