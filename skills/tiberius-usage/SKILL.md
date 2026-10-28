@@ -55,6 +55,13 @@ projects, and tools. Nothing leaves the machine.
 - **Keep facts small and specific**: one statement per fact. A fact that
   keeps growing (project state, a running log) has outlived its shape —
   split it into several small facts and update them independently.
+- **Store the claim, not the story.** Strip narrative framing ("the user
+  said", "after we discussed"), meta-commentary ("this matters because",
+  "so future sessions know"), and anything the fact's own words restate.
+  What remains is the durable statement — and for decisions, the
+  one-sentence reason that would settle a future re-litigation. Identifiers
+  (names, paths, versions, values) are never summarized: verbatim, or not
+  at all (see Never).
 - **Search before adding.** Update a stale fact in place instead of storing
   a duplicate — `update` keeps the id, entity links, and retrieval history.
   `remove` only for facts that are wrong or obsolete. `add` reports
