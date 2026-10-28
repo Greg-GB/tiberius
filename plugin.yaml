@@ -1,3 +1,3 @@
 name: tiberius
-version: 0.3.0
+version: 0.3.1
 description: "Tiberius memory — local SQLite fact store with FTS5 search, trust scoring, and HRR-based compositional retrieval."
