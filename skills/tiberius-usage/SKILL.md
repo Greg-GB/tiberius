@@ -23,6 +23,10 @@ projects, and tools. Nothing leaves the machine.
   an answer that contradicts a stored decision.
 - **What was just recorded?** `list` with `since` (`24h`, `7d`, or an ISO
   date) — recent facts by time, not by keyword.
+- **Conflicting recall:** if recalled facts disagree about the same thing,
+  don't silently pick the higher-ranked one — ask which is current, then
+  `update` or `remove` the stale one. A surfaced contradiction is cheaper
+  than a confident wrong answer.
 - If recall returns nothing relevant, answer normally. Do not loop on
   rephrasings — one retry at most.
 
@@ -48,6 +52,9 @@ projects, and tools. Nothing leaves the machine.
   (file contents, versions, current time), one-off instructions.
 - One fact per call, present-tense declarative: `User prefers X`, never
   `I should always X` (imperatives get re-read as directives later).
+- **Keep facts small and specific**: one statement per fact. A fact that
+  keeps growing (project state, a running log) has outlived its shape —
+  split it into several small facts and update them independently.
 - **Search before adding.** Update a stale fact in place instead of storing
   a duplicate — `update` keeps the id, entity links, and retrieval history.
   `remove` only for facts that are wrong or obsolete. `add` reports
