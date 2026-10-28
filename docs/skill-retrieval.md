@@ -1,13 +1,16 @@
 # Skill retrieval via Tiberius — design & plan
 
-Status: **Phase 2 complete** (2026-10-28): OpenCode plugin wiring implemented
-as designed in §3 (commit `d942209`), 29 plugin tests green, typecheck clean,
-core gates unchanged (58 tests, golden eval 19/19 @1 and @3). Phase 1
-(`skill-sync` + 11 tests, commit `c0f9ba5`) landed 2026-10-27. Everything is on
-branch `skills/retrieval`, pushed to the public repo 2026-10-28 at the user's
-decision (`main` untouched; the feature lands via PR — see §8). Phase 0 = GO
-(spike results in §6: 76% description-only → 100% with trigger tags). Phase 3
-waits on Hermes Q1–Q6; Phase 4 gained a lead (§5, note under the table).
+Status: **Phase 3 complete** (2026-10-28): Hermes provider wiring implemented
+as designed in §4 (in-process skill-sync at `initialize`, prefetch skills block
+with trust floor + per-turn top-k, session-end usage feedback; Q1–Q6 answered
+in §4). Gates: core suite 101 tests, golden eval 19/19 @1 and @3, OpenCode
+plugin 29 tests green, typecheck clean. Phase 2 complete (2026-10-28): OpenCode
+plugin wiring implemented as designed in §3 (commit `d942209`), 29 plugin tests
+green, typecheck clean. Phase 1 (`skill-sync` + 11 tests, commit `c0f9ba5`)
+landed 2026-10-27. Everything is on branch `skills/retrieval`, pushed to the
+public repo 2026-10-28 at the user's decision (`main` untouched; the feature
+lands via PR — see §8). Phase 0 = GO (spike results in §6: 76% description-only
+→ 100% with trigger tags). Phase 4 remains open (§5, note under the table).
 
 Branch: `skills/retrieval` — shared by the OpenCode agent and the Hermes agent.
 See [Shared branch protocol](#8-shared-branch-protocol).
@@ -203,23 +206,74 @@ needs your answers before the Hermes adapter is written.
 - Feedback: `on_session_end(messages)` — detect skill loads in the transcript,
   send `feedback helpful` (same pattern as the OpenCode session-end pass).
 
-### Questions for the Hermes agent
+### Q1–Q6 (answered 2026-10-28, hermes-agent at `/opt/hermes`)
 
-- **Q1.** What exactly does the Hermes core inject about skills? Names only, or
-  names + descriptions? Which block — system prompt or per-turn? (Determines the
-  token math and whether the "savings" story applies to Hermes at all.)
-- **Q2.** Is that static index configurable or suppressible? If the provider can
-  shape it, Hermes gets the token-savings version; otherwise Hermes is in
-  coexistence mode like OpenCode.
-- **Q3.** Where does Hermes discover skills (directory conventions; per-profile
-  vs global)? → the `skill_dirs` values to document.
-- **Q4.** When the model loads a skill, what do tool calls look like in the
-  transcript that reaches `on_session_end(messages)`? (Tool name + argument shape —
-  needed for load detection in the feedback loop.)
-- **Q5.** Does the Hermes skill loader accept arbitrary IDs, or only skills the
-  harness discovered?
-- **Q6.** Are there length limits on what `prefetch` / `system_prompt_block` may
-  return?
+- **Q1.** Names **and** descriptions: `prompt_builder._render_skills_index`
+  renders each skill's name + description, grouped by category, in the system
+  prompt (static per session). The skills block is additive, not a replacement —
+  coexistence mode (see concerns below).
+- **Q2.** Not suppressible from a plugin: the core renders its own index from
+  the discovered catalog. The provider shapes **retrieval** (ranking, trust
+  floor, search channel) but not the static index — same position as OpenCode.
+- **Q3.** `$HERMES_HOME/skills/` (per-profile; this profile has 120 `SKILL.md`
+  files, all category-nested, e.g. `creative/ascii-art/SKILL.md`, plus
+  `skills/.archive/` — hidden dirs are excluded by the walk). `skill_dirs`
+  therefore accepts the profile skills root and the walker recurses.
+- **Q4.** OpenAI-shaped assistant `tool_calls`: `function.name == "skill_view"`
+  with `function.arguments` a JSON string (`{"name": "..."}`); the detector
+  (`_skill_view_names`) also tolerates dict-shaped args and object-shaped rows,
+  mirroring the core's own `skill_view_names_by_call_id` pattern.
+- **Q5.** Catalog-only: `skill_view` resolves against the harness catalog,
+  same as the OpenCode built-in skill tool (which rejects unindexed ids).
+- **Q6.** No hard limit; the provider controls block size (description
+  truncation at 120 chars, `skills_top`/`skills_floor` caps). External timeout
+  protects against hangs — no cap added.
+
+### Implementation record (Phase 3, 2026-10-28)
+
+- `skill-sync` at `initialize()`, **in-process** (same `_skill_sync` code path
+  as the CLI — no subprocess; the provider already imports the core directly).
+  Best-effort: any failure is logged and never breaks session start. `prune`
+  stays off: the configured dirs may be one harness's view of a shared store —
+  deleting another harness's facts is worse than stale ones (the CLI's `--prune`
+  is the manual cleanup path).
+- **Recursive discovery (Phase 1 follow-up, this commit):** the original
+  1-level scan found 0 of this profile's 120 nested skills. `_skill_sync` now
+  walks arbitrarily; a partially-bad `--dir` list syncs the good dirs and
+  reports the bad ones in `skipped` (an entirely missing list is still a hard
+  error — the CLI JSON-error contract).
+- `prefetch`: skills block next to `## Tiberius Memory` — one-shot trust floor
+  (`list_facts(category="skill")` top `skills_floor`, first turn) + per-turn
+  `search(query, category="skill")` top `skills_top`, deduped by fact content
+  so a skill is injected at most once per session. Same line rendering as
+  OpenCode (`- <id> — <desc 120-chars>`).
+- Config under `plugins.tiberius`: `skill_dirs` (list or string), `skills_top`
+  (default 3), `skills_floor` (default 2). **Everything is gated on
+  `skill_dirs` — unset means zero behavior change** (no sync, no block, no
+  feedback; asserted by test). `$HERMES_HOME` placeholders in `skill_dirs` are
+  expanded in the provider (same manual expansion as `db_path` — the config
+  loader only resolves `${VAR}`, not bare `$VAR`). `save_config` round-trips
+  the new keys (test).
+- Feedback in `on_session_end(messages)`: each distinct skill loaded via
+  `skill_view` this session earns one `feedback helpful` (identical semantics
+  to the OpenCode session-end pass — no unhelpful for not-loaded skills).
+  Load names match the `skill-id` tag exactly, falling back to the basename of
+  a path-qualified load. Once per session per fact (per-session dedupe set,
+  reset in `initialize`).
+- Per-session state (`seen` set, floor flag, feedback dedupe) resets in
+  `initialize()` — the manager re-initializes the one provider instance per
+  profile for every new session.
+- Tests: `tests/test_tiberius_hermes_skills.py` (14 tests: config normalization
+  + `$HERMES_HOME` expansion, initialize sync incl. nested + partially-bad
+  dirs, floor/turn/dedupe/re-offer, line rendering, feedback incl. re-session
+  and uncatalog, detector shapes, zero-behavior-change) + 2 recursive-scan
+  tests in `tests/test_tiberius_skill_sync.py`.
+- **Live gate (still open):** restart the Hermes gateway with
+  `skill_dirs: [$HERMES_HOME/skills]` configured, then check the log for the
+  `tiberius skill-sync: N skills` line at session start and the skills block
+  in a turn's prefetch. Verified against real data pre-restart: 114 of 120
+  `SKILL.md` sync (5 in hidden `.archive/`, 1 skipped — no frontmatter
+  description).
 
 ### Concerns / notes
 
@@ -331,7 +385,7 @@ stopword list is a core change and needs the eval gate — deliberately not v1).
 | 0 | Spike (§6) | OpenCode | recall@5 ≥ 80% |
 | 1 | `skill-sync` CLI subcommand + tests (synthetic fixture skill dirs in tmp_path — fictional-content rule, same as the eval fixture) — **done 2026-10-27** (`c0f9ba5`) | OpenCode (shared artifact — write it first; both harnesses depend on it) | Core suite green (58 passed); idempotency test present; golden eval unchanged (19/19 @1, @3) |
 | 2 | OpenCode plugin: options, both blocks, two tools, feedback detection, tests — **done 2026-10-28** (`d942209`) | OpenCode | Plugin suite green (27 passed, typecheck clean); zero behavior change with options unset (asserted by test — exact engine-call sequence + tool count); core gates unchanged (58 tests, 19/19 @1 and @3) |
-| 3 | Hermes provider: prefetch block, config, feedback detection | Hermes (after Q1–Q6 answered) | Provider tests in a Hermes env |
+| 3 | Hermes provider: prefetch block, config, feedback detection — **done 2026-10-28** (recursive-discovery fix to Phase 1 included; live-gateway log check still open, see §4) | Hermes (after Q1–Q6 answered) | Provider tests in a Hermes env (14 tests); core suite 101 passed; golden eval 19/19 @1, @3 |
 | 4 | Later: ranking refinements (body head in the retrieval surface, trigger-phrase frontmatter), per-turn feedback events, one shared skill registry across both harnesses, native index shaping via `ctx.skill` (lead in §5) | whichever | — |
 
 **every** commit that touches the core runs the core suite + golden eval
@@ -342,8 +396,9 @@ discipline still applies to anything retrieval-adjacent.
 version (CONTRIBUTING.md — bump in all places at release time). At release
 time, also update `skills/tiberius-usage/SKILL.md`: this branch
 deliberately leaves that cross-harness usage skill untouched, because the
-skill-catalog tools are conditional (`skillDirs`) on OpenCode and absent from
-the Hermes provider (Phase 3 pending).
+skill-catalog tools are conditional (`skillDirs`) on OpenCode and the Hermes
+provider exposes skill retrieval through its existing prefetch/feedback path
+(no new tools).
 
 ## 8. Shared branch protocol
 

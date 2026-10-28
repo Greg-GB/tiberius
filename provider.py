@@ -83,6 +83,43 @@ def _load_plugin_config() -> dict:
         return {}
 
 
+def _truncate_skill_desc(s: str, limit: int = 120) -> str:
+    """Description for a skill block line: cut at *limit* chars on a word boundary (same
+    render as the OpenCode plugin, so a skill reads identically in both harnesses)."""
+    if len(s) <= limit:
+        return s
+    cut = s[:limit]
+    sp = cut.rfind(" ")
+    return (cut[:sp] if sp > 0 else cut).rstrip() + "…"
+
+
+def _skill_view_names(messages: list) -> list[str]:
+    """Skill names the model loaded via skill_view, transcript order (may repeat; callers
+    dedupe). Mirrors the core's own detector (agent/context_compressor_tail
+    .skill_view_names_by_call_id): OpenAI-shaped assistant tool_calls with
+    function.arguments as a JSON string; dict- and object-shaped rows both accepted."""
+    names: list[str] = []
+    for msg in messages:
+        if not isinstance(msg, dict) or msg.get("role") != "assistant":
+            continue
+        for tc in msg.get("tool_calls") or []:
+            fn = tc.get("function", {}) if isinstance(tc, dict) else getattr(tc, "function", None)
+            if not fn:
+                continue
+            if (fn.get("name") if isinstance(fn, dict) else getattr(fn, "name", None)) != "skill_view":
+                continue
+            args = fn.get("arguments") if isinstance(fn, dict) else getattr(fn, "arguments", None)
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except ValueError:
+                    continue
+            skill = args.get("name") if isinstance(args, dict) else None
+            if isinstance(skill, str) and skill:
+                names.append(skill)
+    return names
+
+
 def _results(items: list, key: str = "results") -> str:
     return json.dumps({key: items, "count": len(items)})
 
@@ -106,6 +143,26 @@ class TiberiusMemoryProvider(MemoryProvider):
         self._config = config or _load_plugin_config()
         self._store = self._retriever = None
         self._min_trust = float(self._config.get("min_trust_threshold", 0.3))
+        # Skill catalog (docs/skill-retrieval.md §4): everything skill-related is gated on
+        # skill_dirs — unset means zero behavior change (no sync, no block, no feedback).
+        raw_dirs = self._config.get("skill_dirs", [])
+        if isinstance(raw_dirs, str):
+            raw_dirs = [raw_dirs]
+        self._skill_dirs = [str(d).strip() for d in raw_dirs if str(d).strip()]
+        if self._skill_dirs:
+            # Same manual expansion as db_path in initialize(): the config loader only resolves
+            # ${VAR}, so a bare $HERMES_HOME placeholder must be replaced here.
+            from hermes_constants import get_hermes_home
+            _home = str(get_hermes_home())
+            self._skill_dirs = [d.replace("$HERMES_HOME", _home).replace("${HERMES_HOME}", _home) for d in self._skill_dirs]
+        self._skills_enabled = bool(self._skill_dirs)
+        self._skills_top = max(1, int(self._config.get("skills_top", 3)))
+        self._skills_floor = max(1, int(self._config.get("skills_floor", 2)))
+        # Per-session skill state — reset in initialize() (the manager re-initializes the
+        # one instance per profile for every new session).
+        self._injected_skill_contents: set = set()
+        self._floor_injected = False
+        self._skill_feedback_sent: set = set()
 
     @property
     def name(self) -> str:
@@ -146,6 +203,32 @@ class TiberiusMemoryProvider(MemoryProvider):
         self._retriever = FactRetriever(store=self._store, hrr_dim=hrr_dim, hrr_weight=float(self._config.get("hrr_weight", 0.3)),
                                         temporal_decay_half_life=int(self._config.get("temporal_decay_half_life", 0)))
         self._session_id = session_id
+        # New session: skill state starts fresh (floor re-offered, seen-set and feedback
+        # de-dupe cleared) — the provider instance is shared across a profile's sessions.
+        self._injected_skill_contents = set()
+        self._floor_injected = False
+        self._skill_feedback_sent = set()
+        if self._skills_enabled:
+            self._sync_skills()
+
+    def _sync_skills(self) -> None:
+        """Upsert skill facts from the configured dirs at session start — in-process, the same
+        code path as the CLI's skill-sync (no subprocess). Best-effort: a bad dir or a locked
+        DB must never break session start. prune stays off: the configured list may be one
+        harness's view of a shared store, and deleting another harness's facts is worse than
+        stale ones (the CLI's --prune is the manual cleanup path)."""
+        import argparse
+
+        from .cli import _skill_sync
+        if self._store is None:
+            return
+        try:
+            report = _skill_sync(argparse.Namespace(dir=self._skill_dirs, prune=False), self._store)
+            logger.info("tiberius skill-sync: %d skills (%d added, %d updated, %d unchanged, %d skipped)",
+                        report["skills"], len(report["added"]), len(report["updated"]),
+                        report["unchanged"], len(report["skipped"]))
+        except Exception as exc:
+            logger.warning("tiberius skill-sync failed (non-fatal): %s", exc)
 
     def system_prompt_block(self) -> str:
         if not self._store:
@@ -165,13 +248,62 @@ class TiberiusMemoryProvider(MemoryProvider):
     def prefetch(self, query: str, *, session_id: str = "") -> str:
         if not self._retriever or not query:
             return ""
+        parts: list[str] = []
         try:
             results = self._retriever.search(query, min_trust=self._min_trust, limit=5)
             lines = [f"- [{r.get('trust_score', r.get('trust', 0)):.1f}] {r.get('content', '')}" for r in results]
-            return "## Tiberius Memory\n" + "\n".join(lines) if results else ""
+            if results:
+                parts.append("## Tiberius Memory\n" + "\n".join(lines))
         except Exception as e:
             logger.debug("Tiberius prefetch failed: %s", e)
+        if self._skills_enabled:
+            try:
+                parts.append(self._skills_block(query))
+            except Exception as e:
+                logger.debug("Tiberius skills block failed: %s", e)
+        return "\n\n".join(p for p in parts if p)
+
+    _SKILL_FLOOR_HEADER = "Skills available this session (trust-ranked; load with skill_view):"
+    _SKILL_TURN_HEADER = "Skills relevant to this turn (load with skill_view):"
+
+    def _skill_fact_line(self, row: dict) -> str:
+        """One block line: '- <id> — <description 120-chars>'. The id prefers the skill-id tag
+        (the frontmatter name) and falls back to the content's '<name>: ' prefix — the same
+        derivation as the OpenCode plugin, so both harnesses name a skill identically."""
+        content = row.get("content", "")
+        name = ""
+        for tag in row.get("tags", "").split(","):
+            if tag.strip().startswith("skill-id:"):
+                name = tag.strip()[len("skill-id:"):]
+                break
+        if name and content.startswith(name + ": "):
+            desc = content[len(name) + 2:]  # the prefix may itself contain ': ' — never re-partition
+        else:
+            name, _, desc = content.partition(": ")
+        return f"- {name} — {_truncate_skill_desc(desc)}"
+
+    def _skills_block(self, query: str) -> str:
+        """The skill retrieval surface (docs/skill-retrieval.md §4): a one-shot trust floor
+        (top-N catalog skills, session start) plus a per-turn search top-k, deduped so a
+        skill is injected at most once per session. Mirrors the OpenCode plugin's blocks."""
+        if not self._store or not self._retriever:
             return ""
+        chunks: list[str] = []
+        if not self._floor_injected:
+            floor = self._store.list_facts(category="skill", limit=self._skills_floor)
+            fresh = [r for r in floor if r["content"] not in self._injected_skill_contents]
+            if fresh:
+                chunks.append(self._SKILL_FLOOR_HEADER + "\n" + "\n".join(self._skill_fact_line(r) for r in fresh))
+            for r in floor:
+                self._injected_skill_contents.add(r["content"])
+            self._floor_injected = True
+        results = self._retriever.search(query, category="skill", min_trust=self._min_trust, limit=self._skills_top)
+        fresh = [r for r in results if r["content"] not in self._injected_skill_contents]
+        if fresh:
+            chunks.append(self._SKILL_TURN_HEADER + "\n" + "\n".join(self._skill_fact_line(r) for r in fresh))
+        for r in results:
+            self._injected_skill_contents.add(r["content"])
+        return "\n\n".join(chunks)
 
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
         return [FACT_STORE_SCHEMA, FACT_FEEDBACK_SCHEMA]
@@ -187,9 +319,43 @@ class TiberiusMemoryProvider(MemoryProvider):
             return tool_error(str(exc))
 
     def on_session_end(self, messages: List[Dict[str, Any]]) -> None:
+        if messages and self._skills_enabled:
+            self._skill_feedback(messages)
         # is_truthy_value: auto_extract is a string enum ("false"/"true"); plain truthiness would treat "false" as on.
         if is_truthy_value(self._config.get("auto_extract", False)) and self._store and messages:
             self._auto_extract_facts(messages)
+
+    def _skill_feedback(self, messages: list) -> None:
+        """Usage feedback (docs/skill-retrieval.md §4): every distinct skill the model loaded
+        this session (a skill_view tool call in the transcript) earns one 'helpful' rating,
+        the same loop the OpenCode plugin runs. Loads of skills outside the catalog are
+        skipped — nothing to train. Best-effort: never raises into session teardown."""
+        if not self._store:
+            return
+        try:
+            loaded = _skill_view_names(messages)
+            if not loaded:
+                return
+            by_id: dict[str, int] = {}
+            for row in self._store.list_facts(category="skill", limit=1000):
+                for tag in row["tags"].split(","):
+                    if tag.strip().startswith("skill-id:"):
+                        by_id[tag.strip()[len("skill-id:"):]] = row["fact_id"]
+                        break
+            rated = 0
+            for name in sorted(set(loaded)):
+                # ponytail: exact skill-id first, then the basename of a path-qualified load
+                # ("cat/skill" -> "skill"); a name collision across namespaces would mis-attribute
+                # one ±0.05 — acceptable for a personal catalog.
+                fid = by_id.get(name) or by_id.get(name.rsplit("/", 1)[-1])
+                if fid is not None and fid not in self._skill_feedback_sent:
+                    self._store.record_feedback(fid, helpful=True)
+                    self._skill_feedback_sent.add(fid)
+                    rated += 1
+            if rated:
+                logger.info("tiberius: skill usage feedback — %d loaded skill(s) rated helpful", rated)
+        except Exception as exc:
+            logger.debug("tiberius skill feedback failed: %s", exc)
 
     def on_memory_write(self, action: str, target: str, content: str) -> None:
         """Mirror built-in memory writes as facts."""
