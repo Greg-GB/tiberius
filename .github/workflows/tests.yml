@@ -17,6 +17,32 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
+      # All version spots must agree (CONTRIBUTING.md): a partial bump would
+      # surface as a stale lockfile at release otherwise. release.yml's tag
+      # guard covers pyproject.toml at tag time; this covers the other four
+      # spots at PR time.
+      #
+      # OBSERVATION MODE (2026-10-28, user decision): continue-on-error keeps
+      # the job green while the check proves itself. To make it blocking,
+      # delete the continue-on-error line — it has survived one release cycle
+      # by then.
+      - name: Version consistency
+        continue-on-error: true
+        run: |
+          python - <<'EOF'
+          import json, re, tomllib
+          lock = json.load(open("opencode/package-lock.json"))
+          spots = {
+              "pyproject.toml": tomllib.load(open("pyproject.toml", "rb"))["project"]["version"],
+              "plugin.yaml": re.search(r"^version:\s*(\S+)", open("plugin.yaml").read(), re.M).group(1),
+              "opencode/package.json": json.load(open("opencode/package.json"))["version"],
+              "lockfile (top)": lock["version"],
+              "lockfile (root package)": lock["packages"][""]["version"],
+          }
+          versions = set(spots.values())
+          assert len(versions) == 1, f"version spots disagree: {spots}"
+          print("all version spots agree:", versions.pop())
+          EOF
       - name: Install deps
         run: python -m pip install -q pytest "numpy>=1.26,<3"
       # Bare-environment collection: provider tests are skipped outside a
