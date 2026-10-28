@@ -26,6 +26,19 @@ projects, and tools. Nothing leaves the machine.
 - If recall returns nothing relevant, answer normally. Do not loop on
   rephrasings — one retry at most.
 
+## Skills — when a ranked skill block appears
+
+- A ranked skill block (a trust floor at session start, plus skills for the
+  current turn) is a curated shortlist: load a skill's body before following
+  it — the description is a teaser, the body is authoritative.
+- With `memory_skill_search` / `memory_skill_load` (OpenCode, `skillDirs`
+  set): search the catalog with a short query when the block has no match,
+  then load the skill by id before acting on it.
+- Without those tools (e.g. Hermes): the same block is loaded with the
+  harness's native skill loader (`skill_view`).
+- Loading a skill records usage automatically (session-end feedback) —
+  often-loaded skills rise in the ranking; no manual rating needed.
+
 ## Store — durable facts only
 
 - **Save:** who the user is, stable project facts, tool quirks, decisions,

@@ -1,6 +1,7 @@
 # Skill retrieval via Tiberius — design & plan
 
-Status: **Phase 3 complete** (2026-10-28): Hermes provider wiring implemented
+Status: **Shipped — v0.3.0** (merged 2026-10-28, PR #14; live gate
+verified): Hermes provider wiring implemented
 as designed in §4 (in-process skill-sync at `initialize`, prefetch skills block
 with trust floor + per-turn top-k, session-end usage feedback; Q1–Q6 answered
 in §4). Gates: core suite 101 tests, golden eval 19/19 @1 and @3, OpenCode
@@ -410,13 +411,12 @@ stopword list is a core change and needs the eval gate — deliberately not v1).
 (AGENTS.md #1). Phase 1 touches `cli.py` (not the core trio), but the gate
 discipline still applies to anything retrieval-adjacent.
 
-**Release note (when this feature lands):** feature PRs do not bump the
-version (CONTRIBUTING.md — bump in all places at release time). At release
-time, also update `skills/tiberius-usage/SKILL.md`: this branch
-deliberately leaves that cross-harness usage skill untouched, because the
-skill-catalog tools are conditional (`skillDirs`) on OpenCode and the Hermes
-provider exposes skill retrieval through its existing prefetch/feedback path
-(no new tools).
+**Release note — executed in v0.3.0 (2026-10-28):** feature PRs do not bump
+the version (CONTRIBUTING.md — bump in all places at release time). `v0.3.0`
+bumped the version in all places and added the conditional skill-catalog
+section to `skills/tiberius-usage/SKILL.md` (the catalog tools are
+conditional on `skillDirs` in OpenCode; the Hermes provider exposes skill
+retrieval through its existing prefetch/feedback path — no new tools).
 
 ## 8. Shared branch protocol
 
