@@ -1,9 +1,13 @@
 # Skill retrieval via Tiberius — design & plan
 
-Status: **Phase 1 complete** (2026-10-27): `skill-sync` CLI implemented as specified
-in §2 + 11 tests — on local branch `skills/retrieval`, **not pushed** (WIP stays
-local until the private dev repo exists). Phase 0 = GO (spike results in §6:
-76% description-only → 100% with trigger tags). Phases 2–4 not started.
+Status: **Phase 2 complete** (2026-10-28): OpenCode plugin wiring implemented
+as designed in §3 (commit `d942209`), 27 plugin tests green, typecheck clean,
+core gates unchanged (58 tests, golden eval 19/19 @1 and @3). Phase 1
+(`skill-sync` + 11 tests, commit `c0f9ba5`) landed 2026-10-27. Everything is on
+local branch `skills/retrieval`, **not pushed** (WIP stays local until the
+private dev repo exists). Phase 0 = GO (spike results in §6: 76%
+description-only → 100% with trigger tags). Phase 3 waits on Hermes Q1–Q6;
+Phase 4 gained a lead (§5, note under the table).
 
 Branch: `skills/retrieval` — shared by the OpenCode agent and the Hermes agent.
 See [Shared branch protocol](#8-shared-branch-protocol).
@@ -109,11 +113,15 @@ per-turn cost) in exchange for three things OpenCode does not have today:
 | `skillsTop?: number`   | 3 (if `skillDirs` set) | Per-turn: second `search <query> --category skill --top N` beside the existing facts search; same `lastSearched` dedupe; inject only skills not yet shown this session; description rendered truncated to ~120 chars. |
 | `skillsFloor?: number` | 2 (if `skillDirs` set) | Session-start block: top-N skill facts by trust via `list --category skill --top N` (flag already exists). |
 
-Render shape (per-turn block, next to the existing memory block):
+Render shape (implemented headers; descriptions truncated to 120 chars at a
+word boundary):
 
 ```
-Relevant skills (load with the skill tool, or memory_skill_load for unindexed ones):
-- <id> — <description truncated to ~120 chars>
+Skills available this session (load with the skill tool if indexed, or memory_skill_load otherwise):
+- <id> — <description>
+
+Skills relevant to this turn (load with the skill tool if indexed, or memory_skill_load otherwise):
+- <id> — <description>
 ```
 
 ### New tools (plugin 9 → 11)
@@ -125,23 +133,52 @@ Relevant skills (load with the skill tool, or memory_skill_load for unindexed on
 - `memory_skill_load <name>` — resolve the fact's `skill-dir` tag → return the
   `SKILL.md` body (size-capped). Makes unindexed dirs actually usable.
 
-### Feedback loop (session end)
+### Feedback loop (session end) — implemented 2026-10-28
 
-The session-end extraction pass already receives each turn's messages. Extend the
-parser: detect `skill` and `memory_skill_load` tool calls with their id argument →
-`feedback <fact_id> helpful` for each loaded skill (fact_id resolved via the
-`skill-id` tag). v1 signal = "was loaded; per-turn tool-event detection is a v2 refinement
-(§5, question 3).
+The session-end handler (fires once per completed turn with the full
+transcript from `ctx.session.context()`) now detects skill loads in the
+transcript — verified shapes against `@opencode/client` types
+(`SessionMessageSkill`, `SessionMessageAssistantTool`):
 
-### Implementation notes (from the current `opencode/index.ts`)
+- **Built-in `skill` tool:** a successful load is recorded as its own
+  transcript message `{ type: "skill", skill, name, text }` — success-only,
+  so it is exactly the "was loaded" signal (a failed load leaves no message).
+- **`memory_skill_load` (BYO catalog):** an assistant content part
+  `{ type: "tool", name: "memory_skill_load", state: { status: "completed", input: { name } } }`;
+  only `completed` parts count — a failed read was not useful.
 
-- Per-turn injection point: the `chat.message` handler — after the facts block,
-  inside the same try/catch discipline ("memory must never break model dispatch").
-- Session start: next to the `injectTop` handler.
-- Subprocess cost: one extra engine spawn per turn (~200 ms, local) — acceptable;
-  a combined search call is a possible later optimization.
-- Tests: extend `opencode/tests/index.test.ts` (12 tests today): options unset →
-  zero behavior change; per-turn dedupe; sync idempotency; `memory_skill_load` path.
+Each distinct loaded skill gets `feedback <fact_id> helpful` **once per
+session** (fact_id resolved from the catalog's `list --category skill`);
+dedupe is against the already-sent set, not the per-turn delta, because the
+handler sees the whole transcript every turn. Out-of-catalog loads
+(no catalog fact for that id) are skipped — nothing to train.
+
+### Implementation notes (as built, 2026-10-28)
+
+- Both blocks live in the `ctx.session.hook("context", …)` handler — skill-sync +
+  floor on the session's first dispatch (guarded by a per-session `syncedSessions`
+  set), per-turn skill search beside the facts search (its own `lastSkillSearch`
+  dedupe, mirroring `lastSearched`). Floor and per-turn blocks share one
+  per-session seen set of skill fact_ids, so a skill is injected at most once.
+- Subprocess cost: +1 engine spawn at session start (sync) + 1 per turn (skill
+  search), ~200 ms local each — acceptable; a combined search call is a later
+  optimization.
+- Outage discipline unchanged: every engine call is caught and swallowed;
+  a failed skill-sync skips the floor for that session rather than re-delaying
+  every model call.
+- `EngineResult` row type gained `tags?: string` (the CLI row contract already
+  carried it — the plugin just hadn't typed it).
+- Tests: `opencode/tests/index.test.ts` grew 12 → 27. New: pure-helper tests
+  (skillSyncArgs / skillIdOf / skillDirOf / skillDescription / truncateText /
+  renderSkillBlock / skillLoadNames) and full `setup()` wiring tests driven by a
+  mock ctx + a fake Node engine (`tests/fake-engine.mjs` — same JSON contract as
+  `python3 -m tiberius.cli`, deterministic skill/fact fixtures, JSON-line log of
+  every invocation). Covers: options-unset zero-change (asserts the exact
+  engine-call sequence and tool count), session-start sync-once + floor +
+  same-turn dedupe, per-turn only-new injection, `injectPerTurn: false`,
+  both tools (incl. not-found / missing-dir-tag errors), session-end feedback
+  once-per-skill with failed-load exclusion and no re-send, and the
+  skill-sync-failure-is-swallowed path. No Python, no network.
 
 ## 4. Hermes side — for the Hermes agent
 
@@ -194,9 +231,19 @@ needs your answers before the Hermes adapter is written.
 | # | Question | Owner | Blocks |
 |---|----------|-------|--------|
 | 1 | Hermes Q1–Q6 (§4) | Hermes agent | Phase 3 design only |
-| 2 | OpenCode skill discovery paths (plugin-shipped vs project vs global) — how much does the BYO channel add? | OpenCode agent | Phase 2 scoping |
-| 3 | Does the V2 event stream carry tool-completion events with name + args? | OpenCode agent | v2 feedback quality |
-| 4 | Does the built-in `skill` tool accept ids from unindexed skills? (Tool description says "an available skill **or a skill explicitly referenced by the user**" — needs a live test.) If not → `memory_skill_load` is the only path for unindexed dirs. | OpenCode agent | Phase 2 (tool surface) |
+| 2 | OpenCode skill discovery paths (plugin-shipped vs project vs global) — how much does the BYO channel add over the native index? | OpenCode agent | Phase 4 scoping only (Phase 2 shipped the BYO channel) |
+| 3 | **Resolved 2026-10-28.** No event stream needed: `ctx.session.context()` returns the full transcript, where tool calls are assistant content parts `{ type: "tool", name, state: { status, input } }` and built-in skill loads are dedicated `{ type: "skill", skill, name, text }` messages (success-only). Feedback detection was built on that (§3). | — | — |
+| 4 | **Resolved 2026-10-27 (live test).** The built-in `skill` tool **rejects unindexed ids** (observed: `Unable to load skill no-such-skill-xyz`), despite the "explicitly referenced by the user" wording. `memory_skill_load` is therefore the only body path for unindexed/BYO dirs — the block wording ("load with the skill tool if indexed, or memory_skill_load otherwise") holds. | — | — |
+
+**Phase 4 lead (2026-10-28):** `@opencode/plugin` 2.1.4 exposes
+`ctx.skill` — a `SkillEditor` transform (`list` / `get` / `add` / `update` /
+`remove` + `reload()`) over `Skill.Info` (`{ id, name, description,
+autoinvoke, path, content }`), with a `DirectorySource` (`{ type: "directory",
+path }`) in `@opencode/schema/skill`. A plugin may be able to *shape the
+native skill index itself* (e.g. add BYO-dir skills to it), which would make
+the built-in `skill` tool work for unindexed dirs and shrink the
+`memory_skill_load` surface. Not verified live; v1 deliberately stays additive
+(approved design). Investigating this is the natural Phase 4 entry point.
 
 ## 6. Phase 0: recall spike
 
@@ -278,10 +325,10 @@ stopword list is a core change and needs the eval gate — deliberately not v1).
 | Phase | Work | Owner | Gate |
 |-------|------|-------|------|
 | 0 | Spike (§6) | OpenCode | recall@5 ≥ 80% |
-| 1 | `skill-sync` CLI subcommand + tests (synthetic fixture skill dirs in tmp_path — fictional-content rule, same as the eval fixture) — **done 2026-10-27** | OpenCode (shared artifact — write it first; both harnesses depend on it) | Core suite green (58 passed); idempotency test present; golden eval unchanged (19/19 @1, @3) |
-| 2 | OpenCode plugin: options, both blocks, two tools, feedback detection, tests | OpenCode | Plugin suite green; zero behavior change with options unset |
+| 1 | `skill-sync` CLI subcommand + tests (synthetic fixture skill dirs in tmp_path — fictional-content rule, same as the eval fixture) — **done 2026-10-27** (`c0f9ba5`) | OpenCode (shared artifact — write it first; both harnesses depend on it) | Core suite green (58 passed); idempotency test present; golden eval unchanged (19/19 @1, @3) |
+| 2 | OpenCode plugin: options, both blocks, two tools, feedback detection, tests — **done 2026-10-28** (`d942209`) | OpenCode | Plugin suite green (27 passed, typecheck clean); zero behavior change with options unset (asserted by test — exact engine-call sequence + tool count); core gates unchanged (58 tests, 19/19 @1 and @3) |
 | 3 | Hermes provider: prefetch block, config, feedback detection | Hermes (after Q1–Q6 answered) | Provider tests in a Hermes env |
-| 4 | Later: ranking refinements (body head in the retrieval surface, trigger-phrase frontmatter), per-turn feedback events, one shared skill registry across both harnesses | whichever | — |
+| 4 | Later: ranking refinements (body head in the retrieval surface, trigger-phrase frontmatter), per-turn feedback events, one shared skill registry across both harnesses, native index shaping via `ctx.skill` (lead in §5) | whichever | — |
 
 **every** commit that touches the core runs the core suite + golden eval
 (AGENTS.md #1). Phase 1 touches `cli.py` (not the core trio), but the gate
