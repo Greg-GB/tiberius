@@ -62,8 +62,12 @@ commits — this repo has no `Co-authored-by:` trailer convention.
   auto-publishes the GitHub Release with commit-generated notes
   (`.github/workflows/release.yml`) — no UI clicks. Release notes act as
   the changelog; there is no separate CHANGELOG file.
-- Bump the version in **all three** places together at release time:
-  `pyproject.toml`, `plugin.yaml`, `opencode/package.json`.
+- Bump the version in **all** places together at release time — one semantic
+  version across four files: `pyproject.toml`, `plugin.yaml`,
+  `opencode/package.json`, and `opencode/package-lock.json` (two spots in
+  the lockfile: the top-level `version` and the `packages."."` entry). The
+  release workflow only guards tag ↔ `pyproject.toml` — the rest are on you
+  at bump time.
 
 ## Adding a new harness
 
