@@ -25,17 +25,35 @@
  *               session — query-conditioned recall, matching the Hermes
  *               provider's per-turn prefetch. Set false for one-shot
  *               session-start injection.
+ *   skillDirs   directories of <skill-name>/SKILL.md subdirs (skill catalog).
+ *               If set: skill-sync at session start, a trust-floor skill block
+ *               at session start, a per-turn ranked skill search, and two new
+ *               tools (memory_skill_search / memory_skill_load). Unset: zero
+ *               behavior change (no skill calls, no skill block, no tools).
+ *   skillsTop   per-turn skill search top-k (default 3, when skillDirs set)
+ *   skillsFloor  session-start skill block top-N by trust (default 2, when
+ *               skillDirs set)
  *
  * What it does:
  *   - tools: memory_search / memory_probe / memory_related / memory_reason / memory_add / memory_feedback
  *     / memory_update / memory_remove / memory_list (same operation surface as
- *     the Hermes provider — see skills/tiberius-usage/SKILL.md)
+ *     the Hermes provider — see skills/tiberius-usage/SKILL.md), plus, with
+ *     skillDirs: memory_skill_search (escape hatch past the per-turn top-k)
+ *     and memory_skill_load (SKILL.md body for skills the built-in skill tool
+ *     does not index — verified 2026-10-27: it rejects unindexed ids)
  *   - context hook: by default, every new user message is searched and only
  *     not-yet-shown facts are injected into the system prompt (query-conditioned
  *     recall, matching the Hermes provider); injectPerTurn: false reverts to a
  *     one-shot push on the session's first model call — recall that does not
  *     depend on the agent remembering to call the tools
+ *   - skill catalog (skillDirs, docs/skill-retrieval.md §3): skills are stored
+ *     as category-'skill' facts by skill-sync; the session-start block keeps
+ *     proven workhorses (top-N by trust) visible, the per-turn block puts the
+ *     skills relevant to THIS turn first, and usage feeds back into trust
  *   - event: on session.execution.succeeded, regex-extracts statements from user messages
+ *     and, for skills loaded during the session (dedicated transcript skill
+ *     messages for built-in loads; completed memory_skill_load tool parts),
+ *     records `feedback helpful` once per skill — the learned-ranking signal
  *
  * Memory must never break model dispatch — every engine call is caught and
  * swallowed. (Per-turn injection is the default, so memory added mid-session
@@ -43,6 +61,8 @@
  * session-start behavior.)
  */
 import { execFile, type ChildProcess } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Plugin } from "@opencode/plugin";
 
 type Options = {
@@ -51,9 +71,12 @@ type Options = {
   pythonpath?: string;
   injectTop?: number;
   injectPerTurn?: boolean;
+  skillDirs?: string[];
+  skillsTop?: number;
+  skillsFloor?: number;
 };
 
-type EngineResult = { results?: { fact_id: number; content: string; category?: string; trust_score?: number }[]; [k: string]: unknown; error?: string };
+type EngineResult = { results?: { fact_id: number; content: string; category?: string; trust_score?: number; tags?: string }[]; [k: string]: unknown; error?: string };
 
 // Engine calls are local and fast (~100-300ms for the Python start). The
 // timeout exists so a hung subprocess (locked DB, wedged filesystem) can
@@ -133,6 +156,89 @@ export function freshInjectionFacts<T extends { fact_id: number }>(results: T[],
   return results.filter((f) => !seen.has(f.fact_id)).slice(0, cap);
 }
 
+// --- skill catalog (Phase 2, docs/skill-retrieval.md §3) ---------------------
+// Skill facts are category-'skill' rows written by `skill-sync`: content
+// '<name>: <description>', tags 'skill-id:<name>, skill-dir:<abs path>, ...'.
+
+// Display cap for skill descriptions in injected blocks (~120 chars per the
+// design doc) and for memory_skill_load bodies (SKILL.md files are small;
+// 32KB is far beyond any real one — the cap exists so a pathological body
+// can never blow up the system prompt).
+export const SKILL_DESC_LIMIT = 120;
+export const SKILL_BODY_MAX = 32_000;
+
+export function skillSyncArgs(dirs: string[]): string[] {
+  const args = ["skill-sync"];
+  for (const d of dirs) args.push("--dir", d);
+  return args;
+}
+
+// The skill id from a skill fact: the skill-id tag is authoritative (it is
+// what skill-sync wrote and what the built-in skill tool / memory_skill_load
+// need); fall back to the content prefix.
+export function skillIdOf(f: { content: string; tags?: string }): string {
+  const tagged = (f.tags ?? "").split(",").map((t) => t.trim()).find((t) => t.startsWith("skill-id:"));
+  if (tagged) return tagged.slice("skill-id:".length);
+  const i = f.content.indexOf(":");
+  return (i > 0 ? f.content.slice(0, i) : f.content).trim();
+}
+
+export function skillDirOf(f: { tags?: string }): string | undefined {
+  const tagged = (f.tags ?? "").split(",").map((t) => t.trim()).find((t) => t.startsWith("skill-dir:"));
+  return tagged ? tagged.slice("skill-dir:".length) : undefined;
+}
+
+// '<name>: <description>' -> '<description>' (whole content if no prefix).
+export function skillDescription(content: string): string {
+  const i = content.indexOf(":");
+  return (i > 0 ? content.slice(i + 1) : content).trim();
+}
+
+export function truncateText(s: string, limit: number): string {
+  if (s.length <= limit) return s;
+  const cut = s.slice(0, limit);
+  const sp = cut.lastIndexOf(" ");
+  return (sp > 0 ? cut.slice(0, sp) : cut).trimEnd() + "…";
+}
+
+export function renderSkillBlock(rows: { content: string; tags?: string }[], header: string): string {
+  return `${header}\n${rows
+    .map((f) => `- ${skillIdOf(f)} — ${truncateText(skillDescription(f.content), SKILL_DESC_LIMIT)}`)
+    .join("\n")}`;
+}
+
+// Skill-load signals in a session transcript (for the usage-feedback loop).
+// Two shapes, verified against @opencode/client types (SessionMessageSkill,
+// SessionMessageAssistantTool):
+//   1. Built-in skill tool: a successful load is recorded as its own transcript
+//      message { type: "skill", skill, name, text } — success-only, so it is
+//      exactly the "was loaded" signal (a failed load leaves no such message).
+//   2. memory_skill_load (BYO catalog): an assistant content part
+//      { type: "tool", name: "memory_skill_load", state: { status, input } };
+//      completed loads only — a failed read was not useful.
+// Returns skill ids, possibly duplicated (the caller dedupes).
+export function skillLoadNames(msgs: unknown[]): string[] {
+  const names: string[] = [];
+  for (const m of msgs) {
+    const msg = m as any;
+    if (!msg || typeof msg !== "object") continue;
+    if (msg.type === "skill") {
+      const n = typeof msg.name === "string" ? msg.name : typeof msg.skill === "string" ? msg.skill : "";
+      if (n) names.push(n);
+      continue;
+    }
+    const parts = Array.isArray(msg.content) ? msg.content : Array.isArray(msg.parts) ? msg.parts : undefined;
+    if (!Array.isArray(parts)) continue;
+    for (const p of parts) {
+      const part = p as any;
+      if (part?.type !== "tool" || part?.state?.status !== "completed") continue;
+      const n = part.name === "memory_skill_load" ? part.state.input?.name : part.name === "skill" ? part.state.input?.id : undefined;
+      if (typeof n === "string" && n) names.push(n);
+    }
+  }
+  return names;
+}
+
 export default Plugin.define({
   id: "tiberius-memory",
   async setup(ctx) {
@@ -145,6 +251,13 @@ export default Plugin.define({
     // rather than a session-start snapshot. injectPerTurn: false reverts to
     // the one-shot session-start push.
     const injectPerTurn = opts.injectPerTurn ?? true;
+    // Skill catalog (docs/skill-retrieval.md §3): everything skill-related is
+    // gated on skillDirs — unset means zero behavior change (no engine calls,
+    // no system-prompt blocks, no tools).
+    const skillDirs = Array.isArray(opts.skillDirs) ? opts.skillDirs.map(String).filter(Boolean) : [];
+    const skillsEnabled = skillDirs.length > 0;
+    const skillsTop = Math.max(1, opts.skillsTop ?? 3);
+    const skillsFloor = Math.max(1, opts.skillsFloor ?? 2);
     const injected = new Set<string>();
     // User-message ids already fed to extract, per session: each turn sends only
     // the delta, so extract cost stays O(new messages) instead of O(session).
@@ -158,6 +271,20 @@ export default Plugin.define({
     // new to that turn).
     const lastSearched = new Map<string, string>();
     const injectedFacts = new Map<string, Set<number>>();
+    // Skill-injection state (skillDirs only): sessions that already ran
+    // skill-sync at session start, the skill fact_ids already shown per
+    // session (floor + per-turn blocks share it — a skill shown in the floor
+    // is not re-pushed by the per-turn search), and the last user message
+    // text skill-searched per session (same per-turn dedupe as facts).
+    const syncedSessions = new Set<string>();
+    const injectedSkills = new Map<string, Set<number>>();
+    const lastSkillSearch = new Map<string, string>();
+    // Skill usage feedback (session end): skills that already got
+    // `feedback helpful` per session — the handler fires once per COMPLETED
+    // TURN with the full transcript, so re-loads from earlier turns must not
+    // re-train trust. (Hot-reload loses this map and can re-send a session's
+    // feedback once — bounded, and trust is clamped to [0, 1].)
+    const skillFeedbackSent = new Map<string, Set<string>>();
 
     // --- tools ---------------------------------------------------------------
     ctx.tool.transform((e) => {
@@ -256,6 +383,42 @@ export default Plugin.define({
           return { content: JSON.stringify((r?.results ?? []).map((f) => ({ id: f.fact_id, content: f.content, category: f.category, trust: f.trust_score }))) };
         },
       });
+      if (skillsEnabled) {
+        // Skill-catalog tools (skillDirs set): the escape hatch past the
+        // per-turn top-k, and the body loader for skills the built-in skill
+        // tool does not index (it rejects unindexed ids — verified 2026-10-27).
+        e.add({
+          name: "memory_skill_search",
+          description: "Search the skill catalog (task-specific instruction documents) by keyword, for skills not in the injected skill block. Returns skill ids — load one with the skill tool (if indexed) or memory_skill_load.",
+          input: { type: "object", properties: { query: { type: "string", description: "Keywords for the relevant skill should match" }, top: { type: "integer", description: "Max results (default 5)" } }, required: ["query"] },
+          execute: async (input: any) => {
+            const r = await callEngine(engine, baseArgs, ["search", String(input.query), "--category", "skill", "--top", String(input.top ?? 5)], undefined, env);
+            return { content: JSON.stringify((r?.results ?? []).map((f) => ({ id: skillIdOf(f), fact_id: f.fact_id, description: skillDescription(f.content) }))) };
+          },
+        });
+        e.add({
+          name: "memory_skill_load",
+          description: "Load the full SKILL.md body of a catalog skill by its id (from the injected skill block or memory_skill_search). Use it for skills the built-in skill tool does not index.",
+          input: { type: "object", properties: { name: { type: "string", description: "Skill id" } }, required: ["name"] },
+          execute: async (input: any) => {
+            const name = String(input.name);
+            // Skill catalogs are small: one list call resolves the skill-dir
+            // tag (the store has no by-tag lookup — list is the public surface).
+            const r = await callEngine(engine, baseArgs, ["list", "--category", "skill", "--top", "1000"], undefined, env);
+            const f = (r?.results ?? []).find((x) => skillIdOf(x) === name);
+            if (!f) return { content: JSON.stringify({ error: `skill ${name} not found in the catalog` }) };
+            const dir = skillDirOf(f);
+            if (!dir) return { content: JSON.stringify({ error: `skill ${name} has no skill-dir tag (was it added by skill-sync?)` }) };
+            const file = join(dir, "SKILL.md");
+            try {
+              const body = readFileSync(file, "utf8");
+              return { content: body.length > SKILL_BODY_MAX ? body.slice(0, SKILL_BODY_MAX) + "\n[truncated]" : body };
+            } catch (e) {
+              return { content: JSON.stringify({ error: `cannot read ${file}: ${e instanceof Error ? e.message : String(e)}` }) };
+            }
+          },
+        });
+      }
     });
 
     // --- context injection: per-turn by default (query-conditioned) ----------
@@ -278,6 +441,60 @@ export default Plugin.define({
         .pop();
       if (!lastUser) return;
       const query = lastUser.slice(0, 200);
+      if (skillsEnabled) {
+        // Skill catalog (docs/skill-retrieval.md §3). Same outage discipline
+        // as the facts path: mark the session before the engine call (a down
+        // engine skips the rest of the session rather than re-delaying every
+        // model call), and swallow everything — memory must never break
+        // dispatch.
+        if (!syncedSessions.has(event.sessionID)) {
+          syncedSessions.add(event.sessionID);
+          try {
+            await runEngine(engine, baseArgs, skillSyncArgs(skillDirs), undefined, env);
+          } catch { /* best-effort: no catalog this session rather than a stuck dispatch */ }
+          let seen = injectedSkills.get(event.sessionID);
+          if (!seen) {
+            seen = new Set<number>();
+            injectedSkills.set(event.sessionID, seen);
+          }
+          // Session-start trust floor: proven workhorses stay visible every
+          // session (top-N by trust — list orders by trust_score DESC).
+          try {
+            const r = await runEngine(engine, baseArgs, ["list", "--category", "skill", "--top", String(skillsFloor)], undefined, env);
+            const fresh = freshInjectionFacts(r?.results ?? [], seen, skillsFloor);
+            for (const f of fresh) seen.add(f.fact_id);
+            if (fresh.length) {
+              event.system.push({
+                type: "text",
+                text: renderSkillBlock(fresh, "Skills available this session (load with the skill tool if indexed, or memory_skill_load otherwise):"),
+              });
+            }
+          } catch { /* memory must never break model dispatch */ }
+        }
+        // Per-turn ranked search, beside the facts search: the skills relevant
+        // to THIS turn. The lastSkillSearch dedupe mirrors lastSearched — model
+        // calls within the same turn re-dispatch the same message and cost
+        // nothing. injectPerTurn: false keeps the session-start floor only.
+        if (injectPerTurn && lastSkillSearch.get(event.sessionID) !== query) {
+          lastSkillSearch.set(event.sessionID, query);
+          let seen = injectedSkills.get(event.sessionID);
+          if (!seen) {
+            seen = new Set<number>();
+            injectedSkills.set(event.sessionID, seen);
+          }
+          try {
+            const r = await runEngine(engine, baseArgs, ["search", query, "--category", "skill", "--top", String(skillsTop)], undefined, env);
+            const fresh = freshInjectionFacts(r?.results ?? [], seen, skillsTop);
+            for (const f of fresh) seen.add(f.fact_id);
+            if (fresh.length) {
+              event.system.push({
+                type: "text",
+                text: renderSkillBlock(fresh, "Skills relevant to this turn (load with the skill tool if indexed, or memory_skill_load otherwise):"),
+              });
+            }
+          } catch { /* memory must never break model dispatch */ }
+        }
+      }
       if (injectPerTurn) {
         // Per-turn: every new user message gets its own search; facts already
         // shown this session are not re-pushed (each turn injects only what is
@@ -333,6 +550,7 @@ export default Plugin.define({
         if (!sessionID) continue;
         try {
           const raw: any[] = await ctx.session.context({ sessionID });
+          // 1) Statement extraction (user messages, delta only).
           const userMsgs = raw.filter((m) => m?.type === "user" && typeof m.text === "string");
           let seen = extractedUserMsgs.get(sessionID);
           if (!seen) {
@@ -343,10 +561,43 @@ export default Plugin.define({
           const msgs = fresh
             .map((m) => ({ role: "user", content: m.text as string }))
             .filter((m) => m.content.length >= 10);
-          if (!msgs.length) continue;
-          await runEngine(engine, baseArgs, ["extract"], JSON.stringify(msgs), env);
-          // Mark AFTER the engine call: a failed turn retries its messages next turn.
-          for (const m of fresh) if (typeof m.id === "string") seen.add(m.id);
+          if (msgs.length) {
+            await runEngine(engine, baseArgs, ["extract"], JSON.stringify(msgs), env);
+            // Mark AFTER the engine call: a failed turn retries its messages next turn.
+            for (const m of fresh) if (typeof m.id === "string") seen.add(m.id);
+          }
+          // 2) Skill usage feedback (docs/skill-retrieval.md §3): a skill that
+          // was loaded gets `feedback helpful` ONCE per session — the learned-
+          // ranking signal. Gated on skillDirs like the rest of the skill
+          // feature: with options unset, a built-in skill load in the
+          // transcript must not trigger skill-catalog engine calls or trust
+          // changes (zero behavior change is the contract). The handler fires
+          // once per completed turn with the full transcript, so dedupe
+          // against what was already sent.
+          if (skillsEnabled) {
+            const loads = skillLoadNames(raw);
+            if (loads.length) {
+              let sent = skillFeedbackSent.get(sessionID);
+              if (!sent) {
+                sent = new Set<string>();
+                skillFeedbackSent.set(sessionID, sent);
+              }
+              const freshLoads = [...new Set(loads)].filter((n) => !sent.has(n));
+              if (freshLoads.length) {
+                try {
+                  const list = await runEngine(engine, baseArgs, ["list", "--category", "skill", "--top", "1000"], undefined, env);
+                  const byId = new Map<string, number>((list?.results ?? []).map((f) => [skillIdOf(f), f.fact_id as number]));
+                  for (const n of freshLoads) {
+                    const fid = byId.get(n);
+                    if (fid === undefined) continue; // load of an out-of-catalog skill — nothing to train
+                    await runEngine(engine, baseArgs, ["feedback", String(fid), "helpful"], undefined, env);
+                    // Mark only after a successful call: a failed turn retries next turn.
+                    sent.add(n);
+                  }
+                } catch { /* best-effort */ }
+              }
+            }
+          }
         } catch { /* best-effort */ }
       }
     })().catch(() => {});
