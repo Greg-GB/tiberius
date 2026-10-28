@@ -263,8 +263,10 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(_skill_sync(a, store)))
             return 0
         ret = FactRetriever(store)
+        total = None
         if a.cmd == "search":
             rows = ret.search(a.query, category=a.category, min_trust=a.min_trust, limit=a.top)
+            total = ret.match_count(a.query, category=a.category, min_trust=a.min_trust)
         elif a.cmd == "probe":
             rows = ret.probe(a.entity, limit=10)
         elif a.cmd == "related":
@@ -330,7 +332,10 @@ def main(argv: list[str] | None = None) -> int:
                         pass  # UNIQUE content collision or similar — extraction is best-effort
             print(json.dumps({"added": added}))
             return 0
-        print(json.dumps({"results": [_row(r) for r in rows], "count": len(rows)}))
+        out: dict = {"results": [_row(r) for r in rows], "count": len(rows)}
+        if total is not None:  # search only: full pool size, so callers can tell a window from the whole
+            out["total"] = total
+        print(json.dumps(out))
         return 0
     except (KeyError, ValueError, sqlite3.Error) as exc:
         # Unknown fact_id (feedback), empty add content, and sqlite-level

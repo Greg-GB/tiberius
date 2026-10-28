@@ -164,6 +164,33 @@ def test_prefetch_floor_and_turn_block(tmp_path):
         p.shutdown()
 
 
+def test_prefetch_coverage_counter(tmp_path):
+    """When the store holds more matches than the 5 shown, the prefetch block shows the
+    window — an unmarked block reads as the whole story, which is what makes the agent
+    answer from context instead of recalling. Complete blocks stay unmarked."""
+    (tmp_path / "a").mkdir()
+    p = _provider(tmp_path / "a")
+    p.initialize(session_id="t")
+    try:
+        for i in range(7):
+            p._store.add_fact(f"The widget factory shipped batch {i} to the docks.")
+        out = p.prefetch("widget factory")
+        assert "(5 of 7 match — fact_store search has the rest)" in out
+    finally:
+        p.shutdown()
+
+    (tmp_path / "b").mkdir()
+    p2 = _provider(tmp_path / "b")
+    p2.initialize(session_id="t")
+    try:
+        p2._store.add_fact("Just one quiet fact about the harbor light.")
+        out = p2.prefetch("harborus light")
+        assert "## Tiberius Memory" in out
+        assert "match —" not in out
+    finally:
+        p2.shutdown()
+
+
 def test_prefetch_no_skill_block_when_disabled(tmp_path):
     skills = _skill_tree(tmp_path / "skills")
     p = _provider(tmp_path)  # no skill_dirs

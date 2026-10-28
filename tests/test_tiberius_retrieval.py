@@ -146,6 +146,28 @@ def test_search_prefix_fallback_on_zero_exact_matches(tmp_path):
         store.close()
 
 
+def test_match_count_counts_pool_without_recording(tmp_path):
+    """Prefetch coverage counter: counts the FTS pool (exact, then prefix fallback) without
+    recording retrievals — recall counts must reflect what the agent actually saw, not the
+    pool counted per turn."""
+    store = MemoryStore(str(tmp_path / "count.db"))
+    try:
+        for i in range(7):
+            store.add_fact(f"The widget factory shipped batch {i} to the docks.")
+        store.add_fact("The nightly backups rotate every seven days.")
+        ret = FactRetriever(store=store)
+        assert ret.match_count("widget factory") == 7
+        assert ret.match_count("backup") == 1  # exact misses "backups" — prefix pass rescues
+        assert ret.match_count("no such tokens anywhere") == 0
+        fid = store._one("SELECT MAX(fact_id) AS m FROM facts")["m"]
+        before = store._one("SELECT retrieval_count FROM facts WHERE fact_id = ?", (fid,))["retrieval_count"]
+        ret.match_count("widget factory")
+        after = store._one("SELECT retrieval_count FROM facts WHERE fact_id = ?", (fid,))["retrieval_count"]
+        assert before == after
+    finally:
+        store.close()
+
+
 def test_sanitize_fts_query_prefix_variant():
     assert FactRetriever._sanitize_fts_query("backup rotations", prefix=True) == '"backup"* OR "rotations"*'
     assert "*" not in FactRetriever._sanitize_fts_query("backup rotations")  # default stays exact
