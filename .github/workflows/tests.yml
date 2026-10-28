@@ -17,11 +17,17 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
-      # All version spots must agree (CONTRIBUTING.md): a partial bump fails
-      # here at PR time instead of surfacing as a stale lockfile at release.
-      # release.yml's tag guard covers pyproject.toml at tag time; this covers
-      # the other four spots at PR time.
+      # All version spots must agree (CONTRIBUTING.md): a partial bump would
+      # surface as a stale lockfile at release otherwise. release.yml's tag
+      # guard covers pyproject.toml at tag time; this covers the other four
+      # spots at PR time.
+      #
+      # OBSERVATION MODE (2026-10-28, user decision): continue-on-error keeps
+      # the job green while the check proves itself. To make it blocking,
+      # delete the continue-on-error line — it has survived one release cycle
+      # by then.
       - name: Version consistency
+        continue-on-error: true
         run: |
           python - <<'EOF'
           import json, re, tomllib
