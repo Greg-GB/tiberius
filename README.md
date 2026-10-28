@@ -95,15 +95,20 @@ Files:
 - **Full operation parity**: every adapter exposes the same surface — search / probe /
   related / reason, plus CRUD and hygiene (`add`, `update`, `remove`, `list` with
   `--since` time filtering, `contradict`, `feedback`).
+- **Skill catalog**: the harness's skills as a second memory corpus — `skill-sync`
+  upserts each `SKILL.md` as a `skill`-category fact, both adapters inject a ranked
+  skill block (trust floor at session start + per-turn search), and session-end usage
+  feedback trains the ranking. Opt-in per harness (`skillDirs` / `skill_dirs`); unset
+  is zero behavior change. Design: `docs/skill-retrieval.md`.
 - **Discovery passes**: alias expansion and prefix fallback in retrieval, so near-miss
   and partial queries still land the right fact.
 - **Near-duplicate detection**: `add` reports `possible_duplicates` (token-overlap over
   the FTS candidate pool) — report-only, the caller removes if it agrees; the store
   never blocks a write.
-- **Quality gates**: a 47-test core suite, 12 plugin unit tests, Hermes-provider
-  tests (need a Hermes environment; 71 total locally), and a 19-query golden recall
-  eval (`eval/`) that any retrieval change must not regress (fixture baseline
-  recall@1 19/19, recall@3 19/19).
+- **Quality gates**: a 60-test core suite (incl. the skill-sync tests), 29 plugin
+  unit tests, Hermes-provider tests (need a Hermes environment), and a 19-query
+  golden recall eval (`eval/`) that any retrieval change must not regress (fixture
+  baseline recall@1 19/19, recall@3 19/19).
 
 ## Prerequisites
 
@@ -161,6 +166,9 @@ Config in `config.yaml` under `plugins.tiberius`:
 | `auto_extract` | `false` | Auto-extract facts at session end |
 | `default_trust` | `0.5` | Default trust score for new facts |
 | `hrr_dim` | `1024` | HRR vector dimensions |
+| `skill_dirs` | unset | skill catalog dirs (`<skill>/SKILL.md`, category-nested layouts OK) — when set: `skill-sync` at session start, a trust-floor + per-turn ranked skill block in the prefetch, and session-end usage feedback for skills the model loads (`skill_view`). Unset: zero behavior change |
+| `skills_top` | `3` (when `skill_dirs` set) | per-turn skill block: top-k for the current query (new skills only — deduped per session, shared with the floor) |
+| `skills_floor` | `2` (when `skill_dirs` set) | session-start skill block: top-N catalog skills by trust |
 
 ### Uninstall
 
@@ -181,6 +189,10 @@ nothing to install or provision. Where it lives:
 |---------|------------------|----------|
 | Hermes | `$HERMES_HOME/tiberius_store.db` | `plugins.tiberius.db_path` in `config.yaml` |
 | OpenCode | `~/.tiberius/memory.db` | `options.db` in `opencode.json` |
+
+When skill sync is enabled (either harness's skill option), the same file also
+holds one `skill`-category fact per `SKILL.md` — it moves, backs up, and
+deletes with the file like everything else.
 
 To move your memory, move the file. To back it up, use SQLite's backup API
 (`sqlite3 source.db ".backup dest.db"`, or Python's `sqlite3` `backup()`
@@ -358,9 +370,9 @@ DB path: `--db` > `$TIBERIUS_DB` > `~/.tiberius/memory.db`. All output is JSON.
 
 `skill-sync` upserts one `skill`-category fact per `<skill-name>/SKILL.md`
 subdir (content `<name>: <description>`, tags `skill-id:` / `skill-dir:` plus
-optional `triggers:` frontmatter) — the shared catalog the OpenCode plugin's
-`skillDirs` option and the skill-retrieval design build on
-(`docs/skill-retrieval.md`). Idempotent; `--prune` (off by default) removes
+optional `triggers:` frontmatter) — the shared catalog behind the OpenCode
+plugin's `skillDirs` option and the Hermes provider's `skill_dirs` config
+(design: `docs/skill-retrieval.md`). Idempotent; `--prune` (off by default) removes
 catalog facts whose id no longer appears in the given dirs.
 
 Or skip the PYTHONPATH entirely: `pip install 'hermes-plugin-tiberius @ git+https://github.com/Greg-GB/tiberius'`
