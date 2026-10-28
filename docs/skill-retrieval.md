@@ -1,13 +1,13 @@
 # Skill retrieval via Tiberius — design & plan
 
 Status: **Phase 2 complete** (2026-10-28): OpenCode plugin wiring implemented
-as designed in §3 (commit `d942209`), 27 plugin tests green, typecheck clean,
+as designed in §3 (commit `d942209`), 29 plugin tests green, typecheck clean,
 core gates unchanged (58 tests, golden eval 19/19 @1 and @3). Phase 1
 (`skill-sync` + 11 tests, commit `c0f9ba5`) landed 2026-10-27. Everything is on
-local branch `skills/retrieval`, **not pushed** (WIP stays local until the
-private dev repo exists). Phase 0 = GO (spike results in §6: 76%
-description-only → 100% with trigger tags). Phase 3 waits on Hermes Q1–Q6;
-Phase 4 gained a lead (§5, note under the table).
+branch `skills/retrieval`, pushed to the public repo 2026-10-28 at the user's
+decision (`main` untouched; the feature lands via PR — see §8). Phase 0 = GO
+(spike results in §6: 76% description-only → 100% with trigger tags). Phase 3
+waits on Hermes Q1–Q6; Phase 4 gained a lead (§5, note under the table).
 
 Branch: `skills/retrieval` — shared by the OpenCode agent and the Hermes agent.
 See [Shared branch protocol](#8-shared-branch-protocol).
@@ -349,10 +349,12 @@ the Hermes provider (Phase 3 pending).
 
 Branch: `skills/retrieval` (off `main`).
 
-- 2026-10-27: the branch was deleted from the public repo at the user's request
-  and is **local only** until a private dev repo (e.g. `tiberius-dev`) exists.
-  Until then the protocol below reduces to: work on the local branch, commit
-  inside your area, never push.
+- 2026-10-28: the user confirmed the branch is shared via the **public repo** —
+  pushed to `github.com/Greg-GB/tiberius` as `skills/retrieval`. `main` is
+  untouched; the feature lands via PR (protect-main ruleset). History: the
+  branch was deleted from the public repo 2026-10-27 at the user's request while
+  awaiting a private dev repo (e.g. `tiberius-dev`); that repo was never
+  created, and the local-only period ended with the 2026-10-28 push.
 - Areas: `cli.py` + `eval/skill_spike/` + this doc = **shared** (OpenCode writes
   first); `opencode/` = OpenCode agent; `provider.py` + Hermes test files =
   Hermes agent.
