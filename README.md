@@ -267,6 +267,9 @@ restart.
 | `pythonpath` | inherited from the environment | `PYTHONPATH` for the engine; set it to the repo parent so `python3 -m tiberius.cli` resolves |
 | `injectTop` | `4` | facts injected into the system prompt at session start |
 | `injectPerTurn` | `true` | per-turn injection (default): each new user message is searched and newly relevant facts (up to 3 per turn, deduped per session) are injected — query-conditioned recall, matching the Hermes provider's per-turn prefetch. Set `false` for a one-shot session-start push instead |
+| `skillDirs` | unset | directories of `<skill-name>/SKILL.md` subdirs — a skill catalog. When set: `skill-sync` at session start, a trust-floor skill block at session start, a per-turn ranked skill search, and two new tools (`memory_skill_search` / `memory_skill_load`). Unset: zero behavior change (no skill calls, blocks, or tools) |
+| `skillsTop` | `3` (when `skillDirs` set) | per-turn skill search top-k (new skills only — deduped per session, shared with the floor) |
+| `skillsFloor` | `2` (when `skillDirs` set) | session-start skill block: top-N catalog skills by trust |
 
 ### What the agent gets
 
@@ -274,6 +277,13 @@ restart.
   `memory_reason` / `memory_add` / `memory_feedback` / `memory_update` /
   `memory_remove` / `memory_list` — the same operation surface as the
   Hermes provider.
+- **Skill catalog** (with `skillDirs` set — otherwise zero behavior change):
+  skills are synced into the store as facts (`skill-sync` at session start),
+  injected as a ranked block (trust floor at session start, top-k for the
+  current turn), and loadable by body with `memory_skill_load` for skills the
+  built-in `skill` tool does not index (`memory_skill_search` is the search
+  channel). Loading a skill records usage feedback, so often-used skills rise
+  in trust.
 - **Context injection**: by default, every new user message is searched and
   newly relevant facts (up to 3 per turn, deduped per session) are appended
   to the system prompt — query-conditioned recall, matching the Hermes
@@ -340,10 +350,18 @@ python3 -m tiberius.cli --db PATH feedback <id> helpful|unhelpful
 python3 -m tiberius.cli --db PATH remove <id>
 python3 -m tiberius.cli --db PATH update <id> [--content TEXT] [--tags a,b] [--category C] [--trust-delta T]
 python3 -m tiberius.cli --db PATH list [--category C] [--min-trust T] [--since 30m|2h|7d|2w|YYYY-MM-DD] [--top N]
+python3 -m tiberius.cli --db PATH skill-sync --dir DIR [--dir DIR ...] [--prune]
 echo '[{"role":"user","content":"..."}]' | python3 -m tiberius.cli --db PATH extract
 ```
 
 DB path: `--db` > `$TIBERIUS_DB` > `~/.tiberius/memory.db`. All output is JSON.
+
+`skill-sync` upserts one `skill`-category fact per `<skill-name>/SKILL.md`
+subdir (content `<name>: <description>`, tags `skill-id:` / `skill-dir:` plus
+optional `triggers:` frontmatter) — the shared catalog the OpenCode plugin's
+`skillDirs` option and the skill-retrieval design build on
+(`docs/skill-retrieval.md`). Idempotent; `--prune` (off by default) removes
+catalog facts whose id no longer appears in the given dirs.
 
 Or skip the PYTHONPATH entirely: `pip install 'hermes-plugin-tiberius @ git+https://github.com/Greg-GB/tiberius'`
 installs the package `tiberius`, and `python3 -m tiberius.cli` works as-is.

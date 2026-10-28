@@ -151,7 +151,11 @@ Each distinct loaded skill gets `feedback <fact_id> helpful` **once per
 session** (fact_id resolved from the catalog's `list --category skill`);
 dedupe is against the already-sent set, not the per-turn delta, because the
 handler sees the whole transcript every turn. Out-of-catalog loads
-(no catalog fact for that id) are skipped — nothing to train.
+(no catalog fact for that id) are skipped — nothing to train. Like the rest
+of the skill feature, the loop is **gated on `skillDirs`** — with options
+unset, a built-in skill load in the transcript must trigger no
+skill-catalog engine calls and no trust changes (zero behavior change is
+the contract; caught on branch review 2026-10-28, regression-tested).
 
 ### Implementation notes (as built, 2026-10-28)
 
@@ -333,6 +337,13 @@ stopword list is a core change and needs the eval gate — deliberately not v1).
 **every** commit that touches the core runs the core suite + golden eval
 (AGENTS.md #1). Phase 1 touches `cli.py` (not the core trio), but the gate
 discipline still applies to anything retrieval-adjacent.
+
+**Release note (when this feature lands):** feature PRs do not bump the
+version (CONTRIBUTING.md — bump in all places at release time). At release
+time, also update `skills/tiberius-usage/SKILL.md`: this branch
+deliberately leaves that cross-harness usage skill untouched, because the
+skill-catalog tools are conditional (`skillDirs`) on OpenCode and absent from
+the Hermes provider (Phase 3 pending).
 
 ## 8. Shared branch protocol
 
