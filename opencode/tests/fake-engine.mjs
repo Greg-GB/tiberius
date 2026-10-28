@@ -99,6 +99,35 @@ switch (cmd) {
     console.log(JSON.stringify({ results: rows.map(row), count: rows.length }));
     break;
   }
+  case "brief": {
+    // Emulates cli.py brief (docs/brief.md): pool of non-skill matches, skills
+    // lane capped by --skills, char/4 whole-fact budget fill (facts lane first,
+    // skills the remainder — the real CLI's tiered fill), window marker via
+    // total (the full matching pool). No entity graph in the fixtures, so
+    // entity_only is always 0 here.
+    const query = rest[0] ?? "";
+    const budget = flag("--budget") ? parseInt(flag("--budget"), 10) : 300;
+    const skillsCap = flag("--skills") ? parseInt(flag("--skills"), 10) : 2;
+    const pool = ranked(FACTS, query, 20);
+    const skillMatches = ranked(SKILLS, query, 20).slice(0, skillsCap);
+    const facts = [];
+    const skills = [];
+    let used = 0;
+    for (const f of pool) {
+      const t = Math.ceil(f.content.length / 4);
+      if (used + t > budget) continue; // whole-fact drop
+      facts.push(row(f));
+      used += t;
+    }
+    for (const s of skillMatches) {
+      const t = Math.ceil(s.content.length / 4);
+      if (used + t > budget) continue;
+      skills.push(row(s));
+      used += t;
+    }
+    console.log(JSON.stringify({ query, total: pool.length, entity_only: 0, count: facts.length, tokens: used, budget, facts, skills }));
+    break;
+  }
   case "feedback": {
     if (process.env.TIBERUS_FAKE_FAIL === "feedback") fail("feedback");
     const [fid, rating] = rest;

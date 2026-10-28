@@ -24,6 +24,7 @@ import tiberiusPlugin, {
   freshInjectionFacts,
   freshUserMsgs,
   messageText,
+  renderBrief,
   renderSkillBlock,
   runEngine,
   skillDescription,
@@ -155,6 +156,35 @@ test("truncateText keeps short text and cuts at a word boundary otherwise", () =
   assert.equal(truncateText("12345", 5), "12345");
   assert.equal(truncateText("alpha beta gamma delta", 15), "alpha beta…");
   assert.equal(truncateText("abcdefghij", 5), "abcde…"); // no word boundary — hard cut
+});
+
+test("renderBrief renders the header marker, fact lines, and skill lane", () => {
+  const block = renderBrief(
+    {
+      total: 5, entity_only: 1, tokens: 240,
+      facts: [
+        { fact_id: 15, content: "a fact" },
+        { fact_id: 18, content: "another" },
+        { fact_id: 19, content: "third" },
+        { fact_id: 20, content: "fourth" },
+      ],
+      skills: [{ fact_id: 1, content: "alpha: memory recall, probe and related lookups", tags: "skill-id:alpha" }],
+    } as any,
+    "release process",
+  );
+  const lines = block.split("\n");
+  assert.equal(lines[0], "brief: release process (4 facts, ~240 tokens — 3 of 5 match, search has the rest; +1 entity-linked)");
+  assert.equal(lines[1], "- [15] a fact");
+  assert.equal(lines[4], "- [20] fourth");
+  assert.equal(lines[5], "skills:");
+  assert.equal(lines[6], "- alpha — memory recall, probe and related lookups");
+});
+
+test("renderBrief omits markers when the window is the whole pool", () => {
+  assert.equal(
+    renderBrief({ total: 1, entity_only: 0, tokens: 8, facts: [{ fact_id: 7, content: "just one" }], skills: [] } as any, "q"),
+    "brief: q (1 fact, ~8 tokens)\n- [7] just one",
+  );
 });
 
 test("renderSkillBlock renders '<id> — <description>' lines under a header", () => {
@@ -353,7 +383,7 @@ test("skill options unset: zero skill behavior (no skill calls, no skill tools, 
     assert.equal(ev.system.length, 1);
     assert.ok(ev.system[0].text.startsWith("Relevant stored memory"));
     assert.ok(!h.tools.some((t) => t.name.startsWith("memory_skill_")));
-    assert.equal(h.tools.length, 9);
+    assert.equal(h.tools.length, 10);
   });
 });
 
@@ -434,7 +464,7 @@ test("skill tools are registered only when skillDirs is set", async () => {
     const names = h.tools.map((t) => t.name);
     assert.ok(names.includes("memory_skill_search"));
     assert.ok(names.includes("memory_skill_load"));
-    assert.equal(h.tools.length, 11);
+    assert.equal(h.tools.length, 12);
   });
 });
 
@@ -475,6 +505,40 @@ test("memory_skill_load truncates pathological bodies at SKILL_BODY_MAX", async 
     } finally {
       writeFileSync(file, original);
     }
+  });
+});
+
+test("memory_brief calls the engine, renders the block, and marks shown facts as seen", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_brief");
+    const out = await tool.execute({ query: "project memory", budget: 50 }, { sessionID: "ses1" });
+    assert.deepEqual(logEntries().map((e) => e.argv), [A("brief", "project memory", "--budget", "50")]);
+    const lines = out.content.split("\n");
+    assert.equal(lines[0], "brief: project memory (2 facts, ~43 tokens)");
+    assert.ok(lines.includes("- [1001] user prefers concise answers about memory work"));
+    assert.ok(lines.includes("- [1002] project database is local SQLite"));
+    assert.ok(lines.includes("skills:"));
+    assert.ok(lines.includes("- alpha — memory recall, probe and related lookups"));
+    assert.ok(lines.includes("- beta — memory add, update and remove writes"));
+
+    // A brief IS a recall: its shown facts are marked seen for the session, so
+    // the per-turn injector must not re-push them.
+    const ev = ctxEvent("ses1", ["user memory preferences"]);
+    await h.contextHandler(ev);
+    assert.deepEqual(logEntries().map((e) => e.argv).slice(1), [A("search", "user memory preferences", "--top", "10")]);
+    assert.equal(ev.system.length, 0); // 1001 was already shown by the brief
+  });
+});
+
+test("memory_brief renders the window marker when the budget truncates the pool", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_brief");
+    const out = await tool.execute({ query: "project memory", budget: 15 });
+    const lines = out.content.split("\n");
+    assert.equal(lines[0], "brief: project memory (1 fact, ~12 tokens — 1 of 2 match, search has the rest)");
+    assert.ok(lines.includes("- [1001] user prefers concise answers about memory work"));
+    assert.ok(!lines.some((l) => l.includes("[1002]"))); // whole-fact drop: 12 + 8 = 20 > 15
+    assert.ok(!lines.includes("skills:")); // skills lane gets no remaining budget
   });
 });
 

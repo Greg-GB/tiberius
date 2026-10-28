@@ -1,6 +1,6 @@
 ---
 name: tiberius-usage
-description: "Use when local memory tools are available (search / probe / related / reason / add / feedback / update / remove / list). Recall before answering questions that may already be known; store only durable facts; rate recall quality after use."
+description: "Use when local memory tools are available (search / brief / probe / related / reason / add / feedback / update / remove / list). Recall before answering questions that may already be known; store only durable facts; rate recall quality after use."
 ---
 
 # Using Tiberius memory effectively
@@ -14,6 +14,10 @@ projects, and tools. Nothing leaves the machine.
   service): `probe` returns every stored fact about it.
 - **Search** for topic queries. Short noun phrases — `deploy workflow`,
   `db path` — not full sentences.
+- **Brief** when starting a task or briefing a fresh context (e.g. a
+  subagent prompt): `brief` composes search + entity probe into one
+  token-budgeted block, whole facts only, with the window marker (how many
+  more matches exist) — one call instead of several.
 - **Reason** across multiple entities only when the question genuinely spans
   two or more (`what touches X and Y`).
 - **Environment questions are prime recall targets** — "how do I do X here?".

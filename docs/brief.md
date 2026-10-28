@@ -1,6 +1,6 @@
 # Context brief (`tiberius brief` / `memory_brief`)
 
-Status: **Phase 1 in progress** (2026-10-28). Phase 0 spike: **GO** (results in §6).
+Status: **Phases 1–2 done locally** (2026-10-28), unpushed pending review. Phase 0 spike: **GO** (results in §6).
 Companion to [skill-retrieval.md](skill-retrieval.md).
 
 ## 1. Why
