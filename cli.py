@@ -95,29 +95,59 @@ def _parse_triggers(raw: str) -> list[str]:
 # "all" for skill-fact listing: far beyond any realistic personal skill catalog.
 _SYNC_ALL_LIMIT = 100_000
 
+# Walk pruning mirrors the Hermes core's skill index (agent/skill_utils.py): hidden/excluded
+# dirs are never skill roots, and a skill root's support dirs hold files, not skills.
+_EXCLUDED_SKILL_DIRS = frozenset((
+    ".git", ".github", ".hub", ".archive", ".curator_backups", ".locks",
+    ".venv", "venv", "node_modules", "site-packages", "__pycache__",
+    ".tox", ".nox", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+))
+_SKILL_SUPPORT_DIRS = frozenset(("references", "templates", "assets", "scripts"))
+
+
+def _iter_skill_dirs(base: Path) -> list[Path]:
+    """Skill dirs (dirs holding a SKILL.md) under *base*, sorted walk order. Recursive:
+    flat layouts (<base>/<skill>/SKILL.md) and category-nested ones
+    (<base>/<category>/<skill>/SKILL.md — the Hermes profile layout) both work. The base
+    itself is never a skill (a --dir is a dir OF skills, as before)."""
+    found: list[Path] = []
+    for root, subdirs, files in os.walk(base):
+        if "SKILL.md" in files:
+            subdirs[:] = [d for d in subdirs if d not in _SKILL_SUPPORT_DIRS]
+        subdirs[:] = sorted(d for d in subdirs
+                            if not d.startswith(".") and d not in _EXCLUDED_SKILL_DIRS)
+        if root != str(base) and "SKILL.md" in files:
+            found.append(Path(root))
+    return found
+
 
 def _skill_sync(args: argparse.Namespace, store: MemoryStore) -> dict:
-    """Upsert one fact per skill (category 'skill') from --dir directories of
-    <skill-name>/SKILL.md subdirectories. Content is '<name>: <description>' (name from
-    frontmatter, falling back to the directory name), tags are 'skill-id:<name>',
-    'skill-dir:<abs path>' plus any optional 'triggers:' frontmatter entries. Idempotent:
-    a fact whose content and tags are unchanged is left alone. With --prune, skill facts
-    carrying a skill-id tag whose id no longer appears in the given dirs are removed —
-    pass the COMPLETE dir list; unmanaged facts (no skill-id tag) are never touched."""
+    """Upsert one fact per skill (category 'skill') from --dir directories containing
+    <skill-name>/SKILL.md subdirectories (scanned recursively, including category-nested
+    layouts; a base dir itself is never treated as a skill). Content is '<name>:
+    <description>' (name from frontmatter, falling back to the directory name), tags are
+    'skill-id:<name>', 'skill-dir:<abs path>' plus any optional 'triggers:' frontmatter
+    entries. Idempotent: a fact whose content and tags are unchanged is left alone. With
+    --prune, skill facts carrying a skill-id tag whose id no longer appears in the given
+    dirs are removed — pass the COMPLETE dir list; unmanaged facts (no skill-id tag) are
+    never touched."""
     dirs = []
+    skipped = []
     for d in args.dir:
         p = Path(d).expanduser().resolve()
         if not p.is_dir():
-            raise ValueError(f"skill dir not found: {d}")  # CLI contract: JSON error, exit 1
+            # A partially-bad dir list syncs the good dirs and reports the bad ones; only an
+            # entirely missing list is a hard error (CLI contract: JSON error, exit 1).
+            skipped.append({"skill": str(p), "reason": "dir not found"})
+            continue
         dirs.append(p)
+    if not dirs:
+        raise ValueError(f"skill dir not found: {args.dir[0]}")  # nothing to sync
 
     skills: list[dict] = []
-    skipped: list[dict] = []
     for base in dirs:
-        for entry in sorted(base.iterdir()):
+        for entry in _iter_skill_dirs(base):
             skill_md = entry / "SKILL.md"
-            if not (entry.is_dir() and skill_md.is_file()):
-                continue
             try:
                 fm = _parse_skill_frontmatter(skill_md.read_text(encoding="utf-8"))
             except (OSError, UnicodeDecodeError) as exc:

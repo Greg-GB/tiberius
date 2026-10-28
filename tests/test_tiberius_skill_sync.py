@@ -228,3 +228,47 @@ def test_skill_sync_last_dir_wins(tmp_path, capsys):
     rows = _skill_rows(capsys, db)
     assert len(rows) == 1  # one fact per skill id, not one per dir
     assert "(beta)" in rows[0]["content"]  # the later dir wins
+
+
+def test_skill_sync_nested_category_layout(tmp_path, capsys):
+    """Category-nested layouts (the Hermes profile layout: <root>/<category>/<skill>/SKILL.md)
+    are discovered recursively; flat skills in the same tree keep working."""
+    db = str(tmp_path / "m.db")
+    skills = tmp_path / "skills"
+    _make_skill(skills, "flat-skill", "Use when things are flat.")
+    (skills / "devops" / "deploy-bot").mkdir(parents=True)
+    (skills / "devops" / "deploy-bot" / "SKILL.md").write_text(
+        "---\nname: deploy-bot\ndescription: \"Use when running the deploy pipeline.\"\n---\n",
+        encoding="utf-8")
+    (skills / "a" / "b" / "deep-skill").mkdir(parents=True)  # arbitrary depth still found
+    (skills / "a" / "b" / "deep-skill" / "SKILL.md").write_text(
+        "---\nname: deep-skill\ndescription: \"Use when the stack runs deep.\"\n---\n",
+        encoding="utf-8")
+
+    rc, out = _run(capsys, "--db", db, "skill-sync", "--dir", str(skills))
+    assert rc == 0 and out["skills"] == 3 and len(out["added"]) == 3
+    rows = {r["content"].split(":")[0]: r for r in _skill_rows(capsys, db)}
+    assert set(rows) == {"flat-skill", "deploy-bot", "deep-skill"}
+    assert str(skills / "devops" / "deploy-bot") in rows["deploy-bot"]["tags"]  # real path in the tag
+
+
+def test_skill_sync_walk_prunes_excluded_and_support_dirs(tmp_path, capsys):
+    """The walk mirrors the Hermes core index: hidden/excluded dirs and a skill root's
+    support dirs (references/templates/assets/scripts) are never skill roots."""
+    db = str(tmp_path / "m.db")
+    skills = tmp_path / "skills"
+    _make_skill(skills, "real-skill", "Use when real.")
+    for hidden in ("node_modules/pkg", ".git/hooks", ".hidden/sneaky"):
+        (skills / hidden).mkdir(parents=True)
+        (skills / hidden / "SKILL.md").write_text(
+            "---\nname: junk\ndescription: \"Should never be synced.\"\n---\n", encoding="utf-8")
+    # A SKILL.md inside a skill's own references/ dir is documentation, not a skill.
+    (skills / "real-skill" / "references" / "example").mkdir(parents=True)
+    (skills / "real-skill" / "references" / "example" / "SKILL.md").write_text(
+        "---\nname: inner-example\ndescription: \"A nested example, not a skill.\"\n---\n",
+        encoding="utf-8")
+
+    rc, out = _run(capsys, "--db", db, "skill-sync", "--dir", str(skills))
+    assert rc == 0 and out["skills"] == 1
+    rows = _skill_rows(capsys, db)
+    assert len(rows) == 1 and rows[0]["content"].startswith("real-skill: ")
