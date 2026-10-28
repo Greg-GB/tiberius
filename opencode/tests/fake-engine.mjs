@@ -30,7 +30,7 @@ const SKILLS = [
   { fact_id: 1, content: "alpha: memory recall, probe and related lookups", trust_score: 0.95, tags: `skill-id:alpha, skill-dir:${skillsDir}/alpha` },
   { fact_id: 2, content: "beta: memory add, update and remove writes", trust_score: 0.85, tags: `skill-id:beta, skill-dir:${skillsDir}/beta` },
   { fact_id: 3, content: "gamma: formatting reports as markdown", trust_score: 0.6, tags: `skill-id:gamma, skill-dir:${skillsDir}/gamma` },
-  { fact_id: 4, content: "delta: shell command execution", trust_score: 0.4, tags: "skill-id:delta, skill-dir:${skillsDir}/delta" },
+  { fact_id: 4, content: "delta: shell command execution", trust_score: 0.4, tags: `skill-id:delta, skill-dir:${skillsDir}/delta` },
   { fact_id: 5, content: "orphan: catalog row lacking a dir tag", trust_score: 0.2, tags: "skill-id:orphan" },
 ];
 const FACTS = [

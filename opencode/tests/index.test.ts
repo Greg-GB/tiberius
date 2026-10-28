@@ -19,6 +19,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import tiberiusPlugin, {
+  SKILL_BODY_MAX,
   callEngine,
   freshInjectionFacts,
   freshUserMsgs,
@@ -462,6 +463,21 @@ test("memory_skill_load resolves the skill-dir tag and reads SKILL.md", async ()
   });
 });
 
+test("memory_skill_load truncates pathological bodies at SKILL_BODY_MAX", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE], skillDirs: [SKILLS_DIR] }, async (h) => {
+    const file = join(SKILLS_DIR, "delta", "SKILL.md");
+    const original = readFileSync(file, "utf8");
+    writeFileSync(file, "x".repeat(SKILL_BODY_MAX + 8_000));
+    try {
+      const tool = h.tools.find((t) => t.name === "memory_skill_load");
+      const out = await tool.execute({ name: "delta" });
+      assert.equal(out.content, "x".repeat(SKILL_BODY_MAX) + "\n[truncated]");
+    } finally {
+      writeFileSync(file, original);
+    }
+  });
+});
+
 test("session end: feedback helpful once per loaded skill (failed loads excluded, no re-send)", async () => {
   await withSetup({ db: DB, engine: ["node", FAKE_ENGINE], skillDirs: [SKILLS_DIR] }, async (h) => {
     const transcript = [
@@ -498,6 +514,24 @@ test("session end: feedback helpful once per loaded skill (failed loads excluded
     const entries2 = await waitForLog(6);
     assert.deepEqual(entries2[5].argv, A("extract"));
     assert.ok(!entries2.slice(5).some((e) => e.argv[2] === "feedback" || e.argv[2] === "list"));
+  });
+});
+
+test("session end, options unset: a built-in skill load triggers no skill-catalog calls", async () => {
+  // Regression: the feedback loop must be gated on skillDirs — otherwise an
+  // off-feature plugin still lists the catalog and trains trust on skill
+  // loads from the harness's own (unindexed-here) skills.
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    h.setTranscript("ses1", [
+      { type: "user", id: "u1", text: "please use the opencode skill for this task" },
+      { type: "skill", id: "ms1", skill: "skl-opencode", name: "opencode", text: "BODY" },
+    ]);
+    h.pushEvent({ id: "e1", created: 0, type: "session.execution.succeeded", durable: {}, data: { sessionID: "ses1" } });
+    const entries = await waitForLog(1);
+    assert.deepEqual(entries.map((e) => e.argv), [A("extract")]);
+    // The turn handler is done once the extract landed; no list/feedback may follow.
+    await new Promise((r) => setTimeout(r, 200));
+    assert.ok(!logEntries().some((e) => e.argv[2] === "list" || e.argv[2] === "feedback"));
   });
 });
 

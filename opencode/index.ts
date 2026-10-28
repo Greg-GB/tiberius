@@ -568,28 +568,34 @@ export default Plugin.define({
           }
           // 2) Skill usage feedback (docs/skill-retrieval.md §3): a skill that
           // was loaded gets `feedback helpful` ONCE per session — the learned-
-          // ranking signal. The handler fires once per completed turn with the
-          // full transcript, so dedupe against what was already sent.
-          const loads = skillLoadNames(raw);
-          if (loads.length) {
-            let sent = skillFeedbackSent.get(sessionID);
-            if (!sent) {
-              sent = new Set<string>();
-              skillFeedbackSent.set(sessionID, sent);
-            }
-            const freshLoads = [...new Set(loads)].filter((n) => !sent.has(n));
-            if (freshLoads.length) {
-              try {
-                const list = await runEngine(engine, baseArgs, ["list", "--category", "skill", "--top", "1000"], undefined, env);
-                const byId = new Map<string, number>((list?.results ?? []).map((f) => [skillIdOf(f), f.fact_id as number]));
-                for (const n of freshLoads) {
-                  const fid = byId.get(n);
-                  if (fid === undefined) continue; // load of an out-of-catalog skill — nothing to train
-                  await runEngine(engine, baseArgs, ["feedback", String(fid), "helpful"], undefined, env);
-                  // Mark only after a successful call: a failed turn retries next turn.
-                  sent.add(n);
-                }
-              } catch { /* best-effort */ }
+          // ranking signal. Gated on skillDirs like the rest of the skill
+          // feature: with options unset, a built-in skill load in the
+          // transcript must not trigger skill-catalog engine calls or trust
+          // changes (zero behavior change is the contract). The handler fires
+          // once per completed turn with the full transcript, so dedupe
+          // against what was already sent.
+          if (skillsEnabled) {
+            const loads = skillLoadNames(raw);
+            if (loads.length) {
+              let sent = skillFeedbackSent.get(sessionID);
+              if (!sent) {
+                sent = new Set<string>();
+                skillFeedbackSent.set(sessionID, sent);
+              }
+              const freshLoads = [...new Set(loads)].filter((n) => !sent.has(n));
+              if (freshLoads.length) {
+                try {
+                  const list = await runEngine(engine, baseArgs, ["list", "--category", "skill", "--top", "1000"], undefined, env);
+                  const byId = new Map<string, number>((list?.results ?? []).map((f) => [skillIdOf(f), f.fact_id as number]));
+                  for (const n of freshLoads) {
+                    const fid = byId.get(n);
+                    if (fid === undefined) continue; // load of an out-of-catalog skill — nothing to train
+                    await runEngine(engine, baseArgs, ["feedback", String(fid), "helpful"], undefined, env);
+                    // Mark only after a successful call: a failed turn retries next turn.
+                    sent.add(n);
+                  }
+                } catch { /* best-effort */ }
+              }
             }
           }
         } catch { /* best-effort */ }
