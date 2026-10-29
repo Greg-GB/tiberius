@@ -78,8 +78,10 @@ projects, and tools. Nothing leaves the machine.
 ## Feedback — train the store
 
 After acting on a recalled fact, rate it: `feedback helpful` if it was
-accurate, `unhelpful` if it was outdated. Trust scores are how the store
-self-corrects — skipping feedback is how stale facts stay on top.
+accurate, `unhelpful` if it was outdated. Rate it right after acting,
+before moving on — a rating deferred to "later" doesn't happen. Trust
+scores are how the store self-corrects — skipping feedback is how stale
+facts stay on top.
 
 ## Never
 
