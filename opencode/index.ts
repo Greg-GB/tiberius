@@ -35,9 +35,10 @@
  *               skillDirs set)
  *
  * What it does:
- *   - tools: memory_search / memory_probe / memory_related / memory_reason / memory_add / memory_feedback
- *     / memory_update / memory_remove / memory_list (same operation surface as
- *     the Hermes provider — see skills/tiberius-usage/SKILL.md), plus, with
+ *   - tools: memory_search / memory_brief / memory_probe / memory_related /
+ *     memory_reason / memory_add / memory_feedback / memory_update /
+ *     memory_remove / memory_list (same operation surface as the Hermes
+ *     provider — see skills/tiberius-usage/SKILL.md), plus, with
  *     skillDirs: memory_skill_search (escape hatch past the per-turn top-k)
  *     and memory_skill_load (SKILL.md body for skills the built-in skill tool
  *     does not index — verified 2026-10-27: it rejects unindexed ids)
@@ -207,6 +208,29 @@ export function renderSkillBlock(rows: { content: string; tags?: string }[], hea
     .join("\n")}`;
 }
 
+// memory_brief output (docs/brief.md §2): the compact block, not JSON — the
+// block is what the model consumes, and its size is what the budget bounds.
+// Header: window marker with the same semantics as the prefetch counter
+// ("K of M match, search has the rest" when the pool exceeds the shown
+// pool-sourced facts) and the entity-linked count when probe added facts.
+export function renderBrief(r: EngineResult, query: string): string {
+  const facts = (r.facts ?? []) as { fact_id: number; content: string }[];
+  const skills = (r.skills ?? []) as { fact_id: number; content: string; tags?: string }[];
+  const total = typeof r.total === "number" ? r.total : facts.length;
+  const entityOnly = typeof r.entity_only === "number" ? r.entity_only : 0;
+  const tokens = typeof r.tokens === "number" ? r.tokens : 0;
+  const poolShown = Math.max(0, facts.length - entityOnly);
+  let header = `brief: ${query} (${facts.length} fact${facts.length === 1 ? "" : "s"}, ~${tokens} tokens`;
+  if (total > poolShown) header += ` — ${poolShown} of ${total} match, search has the rest`;
+  if (entityOnly > 0) header += `; +${entityOnly} entity-linked`;
+  header += ")";
+  const lines = [header, ...facts.map((f) => `- [${f.fact_id}] ${f.content}`)];
+  if (skills.length) {
+    lines.push("skills:", ...skills.map((f) => `- ${skillIdOf(f)} — ${truncateText(skillDescription(f.content), SKILL_DESC_LIMIT)}`));
+  }
+  return lines.join("\n");
+}
+
 // Skill-load signals in a session transcript (for the usage-feedback loop).
 // Two shapes, verified against @opencode/client types (SessionMessageSkill,
 // SessionMessageAssistantTool):
@@ -295,6 +319,37 @@ export default Plugin.define({
         execute: async (input: any) => {
           const r = await callEngine(engine, baseArgs, ["search", String(input.query), "--top", String(input.top ?? 5)], undefined, env);
           return { content: JSON.stringify((r?.results ?? []).map((f) => ({ id: f.fact_id, content: f.content, category: f.category, trust: f.trust_score }))) };
+        },
+      });
+      e.add({
+        name: "memory_brief",
+        description: "Token-budgeted context pack for a task: search plus entity probe in one call, relevance-floored, whole facts only, within the budget — with the store's window marker (how many more matches exist). Use it when starting a task or briefing a fresh context (e.g. a subagent prompt) instead of several separate recall calls.",
+        input: { type: "object", properties: { query: { type: "string", description: "The task or topic the context is for" }, budget: { type: "integer", description: "Token budget for the block (default 300)" } }, required: ["query"] },
+        execute: async (input: any, context: any) => {
+          const r: EngineResult = (await callEngine(engine, baseArgs, ["brief", String(input.query), "--budget", String(input.budget ?? 300)], undefined, env)) ?? {};
+          if (r.error) return { content: JSON.stringify(r) };
+          // A brief IS a recall, and its output is in the conversation: mark the
+          // shown facts as already-shown for this session so the per-turn
+          // injector (and the per-turn skill block) do not re-surface them.
+          // context is absent outside a live session (e.g. unit tests) — skip.
+          const sessionID: string | undefined = context?.sessionID;
+          if (typeof sessionID === "string") {
+            const facts = (r.facts ?? []) as { fact_id: number }[];
+            const skills = (r.skills ?? []) as { fact_id: number }[];
+            let shown = injectedFacts.get(sessionID);
+            if (!shown) {
+              shown = new Set<number>();
+              injectedFacts.set(sessionID, shown);
+            }
+            for (const f of facts) shown.add(f.fact_id);
+            let shownSkills = injectedSkills.get(sessionID);
+            if (!shownSkills) {
+              shownSkills = new Set<number>();
+              injectedSkills.set(sessionID, shownSkills);
+            }
+            for (const s of skills) shownSkills.add(s.fact_id);
+          }
+          return { content: renderBrief(r, String(input.query)) };
         },
       });
       e.add({

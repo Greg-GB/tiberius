@@ -2,6 +2,7 @@
 
 Usage (repo dir importable as package ``tiberius``, i.e. its PARENT on PYTHONPATH):
   python3 -m tiberius.cli [--db PATH] search "query" [--top N] [--category C] [--min-trust T]
+  python3 -m tiberius.cli [--db PATH] brief "query" [--budget N] [--floor T] [--top N]
   python3 -m tiberius.cli [--db PATH] probe "entity"
   python3 -m tiberius.cli [--db PATH] related "entity"
   python3 -m tiberius.cli [--db PATH] reason "entity" "entity" [...]
@@ -26,6 +27,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
+from .brief import brief
 from .retrieval import FactRetriever
 from .store import MemoryStore, extract_statements
 
@@ -204,6 +206,11 @@ def _skill_sync(args: argparse.Namespace, store: MemoryStore) -> dict:
             "pruned": pruned, "skipped": skipped}
 
 
+# brief: the token-budgeted context pack (design: docs/brief.md) lives in
+# brief.py — the shared implementation the CLI subcommand, the OpenCode
+# plugin tool, and the Hermes provider action all wrap.
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="tiberius")
     p.add_argument("--db", help="SQLite path (default: $TIBERIUS_DB or ~/.tiberius/memory.db)")
@@ -214,6 +221,14 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--top", type=int, default=5)
     s.add_argument("--category")
     s.add_argument("--min-trust", type=float, default=0.3)
+    s = sub.add_parser("brief", help="token-budgeted context pack: search ∪ probe, floored, budget-filled")
+    s.add_argument("query")
+    s.add_argument("--budget", type=int, default=300, help="token budget, char/4 estimate (default 300)")
+    s.add_argument("--floor", type=float, default=0.10, help="min search-pool score; entity-only facts bypass (default 0.10)")
+    s.add_argument("--top", type=int, default=20, help="candidate pool size per search/probe (default 20)")
+    s.add_argument("--category", help="restrict to one fact category")
+    s.add_argument("--min-trust", type=float, default=0.3, help="min trust for the search pool (default 0.3)")
+    s.add_argument("--skills", type=int, default=2, help="max skill-lane entries (default 2)")
     s = sub.add_parser("probe", help="all facts linked to one entity")
     s.add_argument("entity")
     s = sub.add_parser("related", help="one hop: facts sharing any of the entity's entities")
@@ -253,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("extract", help="regex-extract facts from a JSON message list on stdin")
 
     a = p.parse_args(argv)
-    if a.cmd in ("search", "reason", "contradict", "list"):
+    if a.cmd in ("search", "brief", "reason", "contradict", "list"):
         a.top = max(1, a.top)  # SQLite LIMIT -1 means unlimited — a negative --top must not dump the store
     store = MemoryStore(db_path=_db_path(a))
     try:
@@ -263,6 +278,12 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(_skill_sync(a, store)))
             return 0
         ret = FactRetriever(store)
+        if a.cmd == "brief":
+            a.budget, a.floor, a.skills = max(1, a.budget), max(0.0, a.floor), max(0, a.skills)
+            print(json.dumps(brief(a.query, ret, store, budget=a.budget, floor=a.floor,
+                                   top=a.top, category=a.category, min_trust=a.min_trust,
+                                   skills=a.skills)))
+            return 0
         total = None
         if a.cmd == "search":
             rows = ret.search(a.query, category=a.category, min_trust=a.min_trust, limit=a.top)
