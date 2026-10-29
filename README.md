@@ -95,7 +95,9 @@ Files:
   and session-end extraction).
 - **Full operation parity**: every adapter exposes the same surface — search / probe /
   related / reason, plus CRUD and hygiene (`add`, `update`, `remove`, `list` with
-  `--since` time filtering, `contradict`, `feedback`).
+  `--since` time filtering, `contradict`, `feedback`). One exception: `brief`,
+  the token-budgeted task context pack, is on the CLI and the OpenCode plugin —
+  Hermes-provider wiring is a later phase (`docs/brief.md`).
 - **Skill catalog**: the harness's skills as a second memory corpus — `skill-sync`
   upserts each `SKILL.md` as a `skill`-category fact, both adapters inject a ranked
   skill block (trust floor at session start + per-turn search), and session-end usage
@@ -293,10 +295,12 @@ restart.
 
 ### What the agent gets
 
-- **Nine tools**: `memory_search` / `memory_probe` / `memory_related` /
-  `memory_reason` / `memory_add` / `memory_feedback` / `memory_update` /
-  `memory_remove` / `memory_list` — the same operation surface as the
-  Hermes provider.
+- **Ten tools**: `memory_search` / `memory_brief` / `memory_probe` /
+  `memory_related` / `memory_reason` / `memory_add` / `memory_feedback` /
+  `memory_update` / `memory_remove` / `memory_list` — the same operation
+  surface as the Hermes provider, plus `memory_brief` (a token-budgeted
+  context pack for a task: search ∪ entity probe, whole facts only, with the
+  window marker; design in `docs/brief.md`).
 - **Skill catalog** (with `skillDirs` set — otherwise zero behavior change):
   skills are synced into the store as facts (`skill-sync` at session start),
   injected as a ranked block (trust floor at session start, top-k for the
@@ -364,6 +368,7 @@ python3 -m tiberius.cli --db PATH search "query" [--top N]
 python3 -m tiberius.cli --db PATH probe "entity"
 python3 -m tiberius.cli --db PATH related "entity"
 python3 -m tiberius.cli --db PATH reason "a" "b"
+python3 -m tiberius.cli --db PATH brief "query" [--budget N]
 python3 -m tiberius.cli --db PATH contradict [--category C] [--threshold T] [--top N]
 python3 -m tiberius.cli --db PATH add "fact" [--category C] [--tags a,b]
 python3 -m tiberius.cli --db PATH feedback <id> helpful|unhelpful

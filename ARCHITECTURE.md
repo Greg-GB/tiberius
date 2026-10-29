@@ -270,9 +270,11 @@ working end-to-end; the update/remove/list tools were live-smoked
 (2026-10-27) against the running store. Verified payload shapes (these were
 the untested assumptions):
 
-- 9 tools mirroring the Hermes surface: `memory_search` / `memory_probe` /
+- The Hermes-surface tools — `memory_search` / `memory_probe` /
   `memory_related` / `memory_reason` / `memory_add` / `memory_feedback` /
-  `memory_update` / `memory_remove` / `memory_list`.
+  `memory_update` / `memory_remove` / `memory_list` — all verified; a 10th,
+  `memory_brief` (token-budgeted context pack, `docs/brief.md`), was added
+  later and is unit-verified.
 - `context` hook: searches the last user message text and pushes top facts
   into the system prompt. Default: per-turn — every **new** user message is
   searched (per-session `lastSearched` — later model calls in the same turn
