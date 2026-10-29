@@ -5,3 +5,8 @@ __pycache__/
 opencode/node_modules/
 build/
 *.egg-info/
+# local memory stores live outside the repo; guard against a stray DB
+# (and its WAL sidecars) landing in the tree
+*.db
+*.db-wal
+*.db-shm
