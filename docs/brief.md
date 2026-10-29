@@ -1,6 +1,6 @@
 # Context brief (`tiberius brief` / `memory_brief`)
 
-Status: **Phases 1–2 done locally** (2026-10-28), unpushed pending review. Phase 0 spike: **GO** (results in §6).
+Status: **Phases 1–2 and the Hermes provider action done locally** (2026-10-28/29), unpushed pending review. Phase 0 spike: **GO** (results in §6).
 Companion to [skill-retrieval.md](skill-retrieval.md).
 
 ## 1. Why
@@ -133,13 +133,16 @@ relevance signal the floor needs — no new ranking surface.
 ## 4. Surface
 
 - **CLI first**: `tiberius brief …` in `cli.py` — testable anywhere, usable
-  by any harness, and the shape other adapters wrap. JSON on stdout like
-  every other subcommand; the compact block in §2 is the renderer (Phase 2
-  tool) shape, not the wire format.
+  by any harness, and the shape other adapters wrap: they import the shared
+  `brief()` (`brief.py`), not a subprocess. JSON on stdout like every other
+  subcommand; the compact block in §2 is the renderer (Phase 2 tool) shape,
+  not the wire format.
 - **OpenCode**: `memory_brief(query, budget?)` tool — a thin wrapper over
   the same engine call, registered like the other `memory_*` tools.
-- **Hermes**: available via the CLI immediately; provider wiring is a
-  later phase, not v1.
+- **Hermes**: `fact_store(action='brief')` on the provider — the same
+  `brief()` in-process (no subprocess), one action on the `fact_store` tool;
+  JSON result like every other action (the OpenCode tool additionally renders
+  the compact block).
 
 ## 5. Open questions
 
@@ -187,8 +190,8 @@ Findings that shape this design:
 | # | Work | Gate |
 |---|------|------|
 | 1 | CLI `brief` subcommand (search ∪ probe) + synthetic-fixture tests: determinism, budget fill, floor, whole-fact drop, dedupe, doc-pointer pass-through, coverage total, entity-only floor bypass, retrieval recording | Core suite green; golden eval unchanged (no core-trio change); fictional-content fixtures |
-| 2 | OpenCode `memory_brief` tool + session-dedupe wiring + plugin tests (tool-surface assertions when catalog unset: zero behavior change) | Plugin suite + typecheck; zero-change contract asserted by test |
-| 3 | (Optional, later) `--since` state-brief variant; Hermes provider exposure | Evidence-gated on actual use |
+| 2 | OpenCode `memory_brief` tool + session-dedupe wiring + plugin tests (tool-surface assertions when catalog unset: zero behavior change); the shared `brief.py` module; the Hermes provider `fact_store(action='brief')` | Plugin suite + typecheck; zero-change contract asserted by test; provider tests in the Hermes env (accepted CI gap) |
+| 3 | (Optional, later) `--since` state-brief variant ("what changed since X") | Evidence-gated on actual use |
 
 ## 8. Concerns / notes
 
@@ -208,4 +211,4 @@ Findings that shape this design:
   holds more than the default; a brief says its pack is a budgeted slice of
   a query's pool.
 - **v1 is deliberately CLI-shaped.** One implementation, three consumers;
-  the plugin tool and any future provider surface are wrappers.
+  the plugin tool and the provider action are wrappers.

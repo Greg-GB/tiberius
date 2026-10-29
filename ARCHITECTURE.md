@@ -272,9 +272,10 @@ the untested assumptions):
 
 - The Hermes-surface tools — `memory_search` / `memory_probe` /
   `memory_related` / `memory_reason` / `memory_add` / `memory_feedback` /
-  `memory_update` / `memory_remove` / `memory_list` — all verified; a 10th,
-  `memory_brief` (token-budgeted context pack, `docs/brief.md`), was added
-  later and is unit-verified.
+  `memory_update` / `memory_remove` / `memory_list` — all verified;
+  `memory_brief` (token-budgeted context pack, `docs/brief.md`) was added
+  later — unit-verified as the CLI subcommand, the plugin tool, and the
+  provider's `fact_store(action='brief')`.
 - `context` hook: searches the last user message text and pushes top facts
   into the system prompt. Default: per-turn — every **new** user message is
   searched (per-session `lastSearched` — later model calls in the same turn

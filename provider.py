@@ -14,6 +14,7 @@ from typing import Any, Dict, List
 from agent.memory_provider import MemoryProvider
 from tools.registry import tool_error
 from utils import is_truthy_value
+from .brief import brief
 from .store import MemoryStore, extract_statements
 from .retrieval import FactRetriever
 from hermes_cli.config import cfg_get
@@ -32,6 +33,9 @@ FACT_STORE_SCHEMA = {
         "context, fact_store for deep recall and compositional queries.\n\nACTIONS (simple → powerful):\n"
         "• add — Store a fact the user would expect you to remember. When a near-identical existing fact exists it is returned as possible_duplicates with a note — remove the older one if it's a true duplicate.\n• search — Keyword lookup ('editor config', 'deploy process').\n"
         "• probe — Entity recall: ALL facts about a person/thing.\n• related — What connects to an entity? Structural adjacency.\n"
+        "• brief — One-call context pack for a task: search + entity probe, token-budgeted (whole facts only, "
+        "default 300) with a window marker (how many more matches exist). Use it when starting a task instead of "
+        "several separate recall calls.\n"
         "• reason — Compositional: facts connected to MULTIPLE entities simultaneously.\n"
         "• contradict — Memory hygiene: find facts making conflicting claims.\n• update/remove/list — CRUD operations.\n\n"
         "IMPORTANT: Before answering anything about the user, the environment, or the project, "
@@ -41,9 +45,10 @@ FACT_STORE_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["add", "search", "probe", "related", "reason", "contradict", "update", "remove", "list"]},
+            "action": {"type": "string", "enum": ["add", "search", "probe", "brief", "related", "reason", "contradict", "update", "remove", "list"]},
             "content": {"type": "string", "description": "Fact content (required for 'add')."},
-            "query": {"type": "string", "description": "Search query (required for 'search')."},
+            "query": {"type": "string", "description": "Search query (required for 'search'/'brief')."},
+            "budget": {"type": "integer", "description": "'brief': token budget for the context pack (default: 300)."},
             "entity": {"type": "string", "description": "Entity name for 'probe'/'related'."},
             "entities": {"type": "array", "items": {"type": "string"}, "description": "Entity names for 'reason'."},
             "fact_id": {"type": "integer", "description": "Fact ID for 'update'/'remove'."},
@@ -404,6 +409,10 @@ class TiberiusMemoryProvider(MemoryProvider):
             "search": lambda self, a: _results(self._retriever.search(
                 a["query"], category=a.get("category"), min_trust=float(a.get("min_trust", self._min_trust)), limit=_limit(a))),
             "probe": lambda self, a: self._entity_query("probe", a),
+            "brief": lambda self, a: json.dumps(brief(
+                a["query"], self._retriever, self._store,
+                budget=max(1, int(a.get("budget", 300))),
+                category=a.get("category"), min_trust=float(a.get("min_trust", self._min_trust)))),
             "related": lambda self, a: self._entity_query("related", a),
             "reason": lambda self, a: _results(self._retriever.reason(a["entities"], category=a.get("category"), limit=_limit(a)))
             if a.get("entities") else tool_error("reason requires 'entities' list"),

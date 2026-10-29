@@ -120,3 +120,22 @@ def test_brief_records_retrievals(tmp_path, capsys):
     _run(capsys, "--db", db, "brief", "AcmeWidget", "--budget", "500")
     rows = _run(capsys, "--db", db, "list", "--top", "10")["results"]
     assert all(r["retrieval_count"] >= 1 for r in rows)  # a brief IS a recall
+
+
+def test_brief_shared_function_direct_call(tmp_path, capsys):
+    """The CLI subcommand and the Hermes provider action wrap the same brief()
+    (one implementation, three consumers) — call it directly with kwargs,
+    exactly as the provider's action handler does."""
+    from hermes_plugin_tiberius.brief import brief
+    from hermes_plugin_tiberius.retrieval import FactRetriever
+    from hermes_plugin_tiberius.store import MemoryStore
+
+    db = str(tmp_path / "m.db")
+    _seed(capsys, db, n=3)
+    store = MemoryStore(db_path=db)
+    try:
+        out = brief("AcmeWidget", FactRetriever(store), store, budget=25)
+        assert out["query"] == "AcmeWidget" and out["budget"] == 25
+        assert out["count"] == 1 and out["total"] == 3  # one 14-token fact fits; window says 3
+    finally:
+        store.close()

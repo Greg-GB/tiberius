@@ -95,9 +95,10 @@ Files:
   and session-end extraction).
 - **Full operation parity**: every adapter exposes the same surface — search / probe /
   related / reason, plus CRUD and hygiene (`add`, `update`, `remove`, `list` with
-  `--since` time filtering, `contradict`, `feedback`). One exception: `brief`,
-  the token-budgeted task context pack, is on the CLI and the OpenCode plugin —
-  Hermes-provider wiring is a later phase (`docs/brief.md`).
+  `--since` time filtering, `contradict`, `feedback`). Every adapter also has
+  `brief` (the token-budgeted task context pack) — a CLI subcommand, the
+  OpenCode `memory_brief` tool, and the Hermes provider's
+  `fact_store(action='brief')` — one shared implementation (`docs/brief.md`).
 - **Skill catalog**: the harness's skills as a second memory corpus — `skill-sync`
   upserts each `SKILL.md` as a `skill`-category fact, both adapters inject a ranked
   skill block (trust floor at session start + per-turn search), and session-end usage
@@ -298,9 +299,10 @@ restart.
 - **Ten tools**: `memory_search` / `memory_brief` / `memory_probe` /
   `memory_related` / `memory_reason` / `memory_add` / `memory_feedback` /
   `memory_update` / `memory_remove` / `memory_list` — the same operation
-  surface as the Hermes provider, plus `memory_brief` (a token-budgeted
-  context pack for a task: search ∪ entity probe, whole facts only, with the
-  window marker; design in `docs/brief.md`).
+  surface as the Hermes provider (`brief` is one of its `fact_store`
+  actions), where `memory_brief` is the one-call plugin form: a
+  token-budgeted context pack for a task — search ∪ entity probe, whole
+  facts only, with the window marker (design in `docs/brief.md`).
 - **Skill catalog** (with `skillDirs` set — otherwise zero behavior change):
   skills are synced into the store as facts (`skill-sync` at session start),
   injected as a ranked block (trust floor at session start, top-k for the

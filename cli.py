@@ -23,11 +23,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sqlite3
 import sys
 from pathlib import Path
 
+from .brief import brief
 from .retrieval import FactRetriever
 from .store import MemoryStore, extract_statements
 
@@ -206,107 +206,9 @@ def _skill_sync(args: argparse.Namespace, store: MemoryStore) -> dict:
             "pruned": pruned, "skipped": skipped}
 
 
-# --- brief: token-budgeted context pack (design: docs/brief.md) -------------------
-# Composition above the core trio: search + probe (existing Retrieval methods),
-# dedupe, floor, tiered rank, budget fill. Read-only apart from retrieval
-# recording (a brief IS a recall — search and probe are both the recorded
-# variants, so a fact in both sets counts once per underlying recall).
-# ponytail: the overlap double-count; if it shows in trust tuning, dedupe before recording.
-
-
-def _named_entities(text: str, conn: sqlite3.Connection) -> list[str]:
-    """Canonical names of entities that appear in *text* at word boundaries —
-    the same convention as FactRetriever._expand_aliases (which inlines the
-    same scan for FTS alias expansion). These are brief's probe targets."""
-    q = text.lower()
-    out: list[str] = []
-    seen: set[str] = set()
-    for row in conn.execute("SELECT name, aliases FROM entities"):
-        names = [row["name"]] + [a.strip() for a in (row["aliases"] or "").split(",") if a.strip()]
-        if not any(re.search(rf"(?<![a-z0-9]){re.escape(n.lower())}(?![a-z0-9])", q) for n in names):
-            continue
-        if row["name"].lower() not in seen:  # an alias hit resolves to the canonical name
-            seen.add(row["name"].lower())
-            out.append(row["name"])
-    return out
-
-
-def _brief_rank(facts: list[dict]) -> list[dict]:
-    """Deterministic rank within one tier: score desc, then trust_score desc,
-    then updated_at desc (ISO strings), then fact_id asc. Stable multi-pass sort."""
-    facts = sorted(facts, key=lambda f: f["fact_id"])
-    facts = sorted(facts, key=lambda f: f.get("updated_at") or f.get("created_at") or "", reverse=True)
-    facts = sorted(facts, key=lambda f: f.get("trust_score", 0.0), reverse=True)
-    return sorted(facts, key=lambda f: f.get("score", 0.0), reverse=True)
-
-
-def _brief_fill(facts: list[dict], budget: int) -> tuple[list[dict], int]:
-    """Budget fill in rank order at the char/4 token estimate (ceil). A fact
-    that does not fit is dropped whole (a partial fact is worse than no
-    fact); the scan continues past a miss, so a smaller fact later in rank
-    order may still fit."""
-    kept: list[dict] = []
-    used = 0
-    for f in facts:
-        toks = -(-len(f["content"]) // 4)
-        if used + toks <= budget:
-            kept.append(f)
-            used += toks
-    return kept, used
-
-
-def _brief(a: argparse.Namespace, ret: FactRetriever, store: MemoryStore) -> dict:
-    """Token-budgeted context pack for a query: search ∪ probe → dedupe →
-    floor → tiered rank → budget fill → optional skill lane.
-    Tier 1 is the query-scored pool (floor applies); tier 2 is entity-only
-    facts (probe's structural path is not trust-gated and its centrality
-    score is on a different scale, so it bypasses the floor and ranks as its
-    own tier). 'total' is the query-match pool via match_count() — the FTS
-    pool, no rerank, no recording — so a rendered block can state it is a
-    window, not the whole (same marker as the prefetch counter)."""
-    pool = ret.search(a.query, category=a.category, min_trust=a.min_trust, limit=a.top)
-    total = ret.match_count(a.query, category=a.category, min_trust=a.min_trust)
-    pool_ids = {f["fact_id"] for f in pool}
-
-    entity_only: list[dict] = []
-    seen_entity: set[int] = set()
-    for entity in _named_entities(a.query, store._conn):
-        for f in ret.probe(entity, category=a.category, limit=a.top):
-            if f["fact_id"] not in pool_ids and f["fact_id"] not in seen_entity:
-                seen_entity.add(f["fact_id"])
-                entity_only.append(f)
-
-    skill_pool = [f for f in pool if f.get("category") == "skill" and f["score"] >= a.floor]
-    fact_pool = [f for f in pool if f.get("category") != "skill" and f["score"] >= a.floor]
-    entity_facts = [f for f in entity_only if f.get("category") != "skill"]
-    entity_skills = [f for f in entity_only if f.get("category") == "skill"]
-
-    # Tiered fill: the query-scored pool consumes the budget first (tier 1),
-    # entity-only facts the remainder (tier 2) — their score scales differ,
-    # so they are ranked and filled separately, never interleaved.
-    tier1, used = _brief_fill(_brief_rank(fact_pool), a.budget)
-    tier2, used2 = _brief_fill(_brief_rank(entity_facts), a.budget - used)
-    facts = tier1 + tier2
-    used += used2
-    skills, skill_toks = _brief_fill(_brief_rank(skill_pool + entity_skills), a.budget - used)
-    skills = skills[: max(0, a.skills)]
-    skill_toks = sum(-(-len(s["content"]) // 4) for s in skills)
-
-    def shape(f: dict) -> dict:
-        return {"fact_id": f["fact_id"], "content": f["content"],
-                "category": f.get("category"), "trust_score": f.get("trust_score"),
-                "score": round(f.get("score", 0.0), 3)}
-
-    return {
-        "query": a.query,
-        "total": total,  # query-match pool (like search's 'total') — the window's "of N"
-        "entity_only": len([f for f in facts + skills if f["fact_id"] in seen_entity]),
-        "count": len(facts),
-        "tokens": used + skill_toks,  # char/4 estimate of shown content (facts + skills)
-        "budget": a.budget,
-        "facts": [shape(f) for f in facts],
-        "skills": [shape(f) for f in skills],
-    }
+# brief: the token-budgeted context pack (design: docs/brief.md) lives in
+# brief.py — the shared implementation the CLI subcommand, the OpenCode
+# plugin tool, and the Hermes provider action all wrap.
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -378,7 +280,9 @@ def main(argv: list[str] | None = None) -> int:
         ret = FactRetriever(store)
         if a.cmd == "brief":
             a.budget, a.floor, a.skills = max(1, a.budget), max(0.0, a.floor), max(0, a.skills)
-            print(json.dumps(_brief(a, ret, store)))
+            print(json.dumps(brief(a.query, ret, store, budget=a.budget, floor=a.floor,
+                                   top=a.top, category=a.category, min_trust=a.min_trust,
+                                   skills=a.skills)))
             return 0
         total = None
         if a.cmd == "search":
