@@ -191,10 +191,9 @@ the contract; caught on branch review 2026-10-28, regression-tested).
 ## 4. Hermes side — for the Hermes agent
 
 Owner: **Hermes agent**. Code: `provider.py` + Hermes provider tests.
-The OpenCode agent has **no checkout of hermes-agent in this container** (the core
-suite's `tests/conftest.py` expects `HERMES_AGENT_REPO`, default
-`~/.hermes/hermes-agent` — it is not present here), so everything marked Q* below
-needs your answers before the Hermes adapter is written.
+The Q* answers below were gathered in a Hermes environment (provider tests run
+only where hermes-agent is available: `tests/conftest.py` reads `HERMES_AGENT_REPO`,
+default `~/.hermes/hermes-agent`).
 
 ### Design sketch (mirrors the OpenCode side)
 
@@ -207,7 +206,7 @@ needs your answers before the Hermes adapter is written.
 - Feedback: `on_session_end(messages)` — detect skill loads in the transcript,
   send `feedback helpful` (same pattern as the OpenCode session-end pass).
 
-### Q1–Q6 (answered 2026-10-28, hermes-agent at `/opt/hermes`)
+### Q1–Q6 (answered 2026-10-28)
 
 - **Q1.** Names **and** descriptions: `prompt_builder._render_skills_index`
   renders each skill's name + description, grouped by category, in the system
@@ -216,10 +215,10 @@ needs your answers before the Hermes adapter is written.
 - **Q2.** Not suppressible from a plugin: the core renders its own index from
   the discovered catalog. The provider shapes **retrieval** (ranking, trust
   floor, search channel) but not the static index — same position as OpenCode.
-- **Q3.** `$HERMES_HOME/skills/` (per-profile; a large catalog, entirely
-  category-nested, e.g. `creative/ascii-art/SKILL.md`, plus `skills/.archive/`
-  — hidden dirs are excluded by the walk). `skill_dirs` therefore accepts the
-  profile skills root and the walker recurses.
+- **Q3.** `$HERMES_HOME/skills/` (per-profile; category-nested,
+  e.g. `<category>/<skill-name>/SKILL.md>` — hidden dirs are excluded by the
+  walk). `skill_dirs` therefore accepts the profile skills root and the
+  walker recurses.
 - **Q4.** OpenAI-shaped assistant `tool_calls`: `function.name == "skill_view"`
   with `function.arguments` a JSON string (`{"name": "..."}`); the detector
   (`_skill_view_names`) also tolerates dict-shaped args and object-shaped rows,
