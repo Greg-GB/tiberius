@@ -22,12 +22,10 @@ jobs:
       # guard covers pyproject.toml at tag time; this covers the other four
       # spots at PR time.
       #
-      # OBSERVATION MODE (2026-10-28, user decision): continue-on-error keeps
-      # the job green while the check proves itself. To make it blocking,
-      # delete the continue-on-error line — it has survived one release cycle
-      # by then.
+      # Blocking (observation mode ended 2026-10-29, user decision): the
+      # check proved itself — it caught the v0.3.2 lockfile drift and ran
+      # green through the v0.4.0 bump and the follow-up PRs since.
       - name: Version consistency
-        continue-on-error: true
         run: |
           python - <<'EOF'
           import json, re, tomllib
