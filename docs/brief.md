@@ -1,6 +1,6 @@
 # Context brief (`tiberius brief` / `memory_brief`)
 
-Status: **Phases 1–2 and the Hermes provider action done locally** (2026-10-28/29), unpushed pending review. Phase 0 spike: **GO** (results in §6).
+Status: **shipped** — v0.4.0 (2026-10-29): CLI `brief` subcommand, OpenCode `memory_brief` tool, Hermes provider `fact_store(action='brief')`. Phase 0 spike: **GO** (results in §6).
 Companion to [skill-retrieval.md](skill-retrieval.md).
 
 ## 1. Why
