@@ -11,6 +11,7 @@ AGENTS.md lists the hard invariants; this file explains them.
 | `holographic.py` | HRR math: phase-encoded vectors, bind/unbind/bundle, blob (de)serialization | numpy (optional) |
 | `store.py` | SQLite schema, `MemoryStore` (shared connection), entity extraction/resolution, `extract_statements` | stdlib only |
 | `retrieval.py` | `FactRetriever`: search / probe / related / reason / contradict | store, holographic |
+| `brief.py` | `brief()`: token-budgeted context pack — search ∪ probe, dedupe, tiered rank, budget fill; harness-free, wrapped by the CLI subcommand, the OpenCode tool, and the Hermes provider action | store, retrieval |
 | `provider.py` | Hermes `MemoryProvider` adapter (in-process) | Hermes core + all of the above |
 | `cli.py` | Harness-agnostic JSON CLI (subprocess surface for any harness) | store, retrieval |
 | `opencode/index.ts` | OpenCode V2 plugin: subprocess wrapper around `cli.py` | node, `cli.py` |

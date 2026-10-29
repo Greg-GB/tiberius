@@ -19,9 +19,9 @@ See [What's changed](#whats-changed-vs-upstream).
 ## A note on provenance
 
 Tiberius was developed alongside a local LLM (an AI coding agent) and human
-review. The whole codebase is ~2,350 lines across six files — small enough
-to read in one sitting — and every push is gated in CI by the core test
-suite, the plugin unit tests, and a 19-query golden recall eval. But it will
+review. The whole codebase is small enough to read in one sitting, and every
+push is gated in CI by the core test suite, the plugin unit tests, and a
+19-query golden recall eval. But it will
 store **your personal memory**: read the code and verify the parts you rely
 on before you trust it with your data.
 
@@ -75,6 +75,7 @@ Files:
 
 - `store.py` — fact store (SQLite + FTS5), entity extraction, regex statement extraction
 - `retrieval.py` — search / probe / related / reason (SQL entity graph composes, HRR ranks within set)
+- `brief.py` — `brief`: the token-budgeted context pack (search ∪ probe, tiered rank, budget fill) — the shared implementation behind the CLI subcommand, the OpenCode tool, and the Hermes provider action
 - `holographic.py` — HRR phase-vector algebra (numpy optional; without it, keyword mode)
 - `provider.py` — Hermes `MemoryProvider` adapter (in-process plugin)
 - `cli.py` — generic entrypoint for every other harness (`python3 -m tiberius.cli`)
@@ -229,9 +230,10 @@ for r in sqlite3.connect('tiberius_store.db').execute(
 `opencode/index.ts` is a native OpenCode V2 plugin. Every operation shells out
 to the Python CLI in a local subprocess — the core never runs inside the node
 process, and nothing crosses the network. **Runtime-verified against live
-OpenCode 2.0.28** (2026-10-26): all nine tools, context injection, and
-session-end extraction were observed working end-to-end; the verified payload
-shapes are documented in [`ARCHITECTURE.md`](ARCHITECTURE.md).
+OpenCode 2.0.28** (2026-10-26; `memory_brief` 2026-10-29): all ten tools,
+context injection, and session-end extraction were observed working
+end-to-end; the verified payload shapes are documented in
+[`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ### Install
 
@@ -410,8 +412,8 @@ vulnerability in a local-memory project: [SECURITY.md](SECURITY.md).
 
 ## Development
 
-Core tests (`test_tiberius_store`, `test_tiberius_retrieval`, `test_tiberius_cli`) need nothing
-beyond Python 3.11+ and pytest; provider tests additionally import Hermes core. Retrieval
+The core test suite needs nothing beyond Python 3.11+ and pytest; provider
+tests additionally import Hermes core. Retrieval
 quality is gated by the golden eval: `python eval/run_eval.py` runs the committed
 synthetic fixture (fixture baseline recall@1 19/19, recall@3 19/19); pass a DB path to
 eval against your own live store: `python eval/run_eval.py /path/to/your.db`. CI runs
