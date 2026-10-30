@@ -1,6 +1,6 @@
 ---
 name: tiberius-usage
-description: "Use when local memory tools are available (search / brief / drift / probe / show / related / reason / add / feedback / update / remove / list). Recall before answering questions that may already be known; store only durable facts; rate recall quality after use."
+description: "Use when local memory tools are available (search / brief / drift / probe / show / entities / related / reason / add / feedback / update / remove / list). Recall before answering questions that may already be known; store only durable facts; rate recall quality after use."
 ---
 
 # Using Tiberius memory effectively
@@ -46,6 +46,9 @@ projects, and tools. Nothing leaves the machine.
 - **Show** — read one fact by id before `update` or `remove`: full content,
   entities (with aliases), trust, and counts. A by-id lookup is not a
   recall — it does not touch the trust signal.
+- **Entities** — list the entity names with their linked-fact counts and
+  aliases before `probe` / `related` / `reason`: those actions take a name,
+  and nothing else lists the names. A listing is not a recall.
 - If recall returns nothing relevant, answer normally. Do not loop on
   rephrasings — one retry at most.
 
