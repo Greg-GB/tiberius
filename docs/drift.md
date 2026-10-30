@@ -1,10 +1,8 @@
 # Drift tracking (`tiberius drift` / `memory_drift`)
 
-Status: **Phase 1–2 complete** (2026-10-30; spike findings in §6): CLI `drift`
-subcommand, OpenCode `memory_drift` tool (runtime-verified against live
-OpenCode 2.0.28), Hermes provider `fact_store(action='drift')`. On local
-branch `feature/drift`, version bumped to 0.5.0 — push/PR pending user
-sign-off.
+Status: **shipped** — v0.5.0 (2026-10-30): CLI `drift` subcommand, OpenCode
+`memory_drift` tool, Hermes provider `fact_store(action='drift')`. Phase 0
+spike: **GO** (results in §6).
 Companion to [brief.md](brief.md): the drift state side *is* the `--since`
 state-brief variant that brief's open question #3 parked.
 
@@ -260,7 +258,7 @@ plan-side query, recency-ranked state side).
 |---|------|------|
 | 0 | ~~Spike per §6; findings recorded in §6~~ **done 2026-10-30 — GO** (§6) | — |
 | 1 | ~~`drift.py` + CLI subcommand + `tests/test_tiberius_drift.py` (fictional fixtures, through `cli.main()`; the state-side `probe`/`related` paths need numpy, so those cases `importorskip` — the plan-side tag+entity query and the token-overlap markers do not) + README command table~~ **done 2026-10-30**: 12 tests, suite 85 passed, eval 19/19 @1 and @3 unchanged | — |
-| 2 | ~~OpenCode `memory_drift` + session dedupe + plugin tests; Hermes `fact_store(action='drift')` + system-prompt line; tiberius-usage skill line; README tool count; version bump 0.4.0 → 0.5.0 in all version spots~~ **done 2026-10-30 (local, unpushed)**: plugin suite 38 passed + typecheck, version spots agree (the CI version-consistency check), `memory_drift` runtime-verified against live OpenCode 2.0.28; the provider test file runs in a Hermes env (accepted CI gap) | — |
+| 2 | ~~OpenCode `memory_drift` + session dedupe + plugin tests; Hermes `fact_store(action='drift')` + system-prompt line; tiberius-usage skill line; README tool count; version bump 0.4.0 → 0.5.0 in all version spots~~ **done 2026-10-30**: plugin suite 38 passed + typecheck, version spots agree (the CI version-consistency check), `memory_drift` runtime-verified against live OpenCode 2.0.28; the provider test file runs in a Hermes env (accepted CI gap) | — |
 | 3 | (Optional, later) store drift verdicts as facts → default anchor = newest verdict (drift-over-time for free); `contradict` plan-vs-state tension as a hint, not a verdict | Evidence-gated on actual use |
 
 **Non-goals:** no drift scoring/judgment in the core; no HRR similarity as a
