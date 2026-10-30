@@ -1,6 +1,8 @@
 # Show a fact (`tiberius show` / `memory_show`)
 
-Status: **unreleased** — first feature off the agent-experience review.
+Status: **shipped** — v0.5.1 (2026-10-30): CLI `show` subcommand, OpenCode
+`memory_show` tool, Hermes provider `fact_store(action='show')`. First
+feature off the agent-experience review.
 
 ## 1. Why
 

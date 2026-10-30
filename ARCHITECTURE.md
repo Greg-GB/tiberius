@@ -281,7 +281,8 @@ the untested assumptions):
   plan/state pack, `docs/drift.md`) likewise — unit-verified the same way,
   and runtime-verified against live OpenCode 2.0.28 (2026-10-30);
   `memory_show` (one fact by id, `docs/show.md`) likewise — unit-verified
-  the same way, live runtime check pending.
+  the same way, and runtime-verified against live OpenCode 2.0.28
+  (2026-10-30).
 - `context` hook: searches the last user message text and pushes top facts
   into the system prompt. Default: per-turn — every **new** user message is
   searched (per-session `lastSearched` — later model calls in the same turn
