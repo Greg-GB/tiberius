@@ -290,3 +290,21 @@ def test_recall_counts_retrievals_exactly_once(tmp_path):
         assert count() == 4
     finally:
         store.close()
+
+
+def test_related_dedupes_own_facts(tmp_path):
+    """Regression: related's 1-hop scan excluded only self-pairs (fe2.fact_id != fe1.fact_id), so any
+    entity with two or more facts had every own fact ALSO land in the hop set (each shares the queried
+    entity with its siblings) and was returned twice. own ∪ hop is a union: each fact once."""
+    pytest.importorskip("numpy")
+    path = tmp_path / "tiberius_store.db"
+    store = MemoryStore(path, hrr_dim=128)
+    store.add_fact("ZetaDock ships crates to the northern docks.")
+    store.add_fact("ZetaDock tracks crate status in the ledger.")
+    try:
+        r = FactRetriever(store).related("ZetaDock", limit=10)
+        ids = [f["fact_id"] for f in r]
+        assert len(ids) == len(set(ids))  # no duplicates
+        assert len(ids) == 2  # exactly the entity's two facts (the store holds nothing else)
+    finally:
+        store.close()
