@@ -95,8 +95,8 @@ project
     → minus plan facts
     → ranked by recency (created_at desc; tie: trust desc, fact_id asc)
   → corroboration: per plan fact, top state echoes by overlap coefficient
-    (pure Python over the already-recalled pools — no extra query path)
-  → budget fill: plan side first, state fills the remainder
+    (pure Python over the already-recalled window — no extra query path)
+  → split budget fill: each side gets its own half (retired plan-first: see §3.2)
   → unbacked list + window totals
 ```
 
@@ -130,9 +130,19 @@ has changed since the anchor".
   project needs an explicit `--since <project start>` — that is a feature,
   not a bug (ongoing tracking is "since the plan was recorded"). `--since`
   override reuses `store._parse_since` (ISO or relative 30m/2h/7d/2w).
-- **Plan side first.** The claims being checked must not be cut: plan facts
-  consume the budget before state (tiered fill, the brief rationale — the two
-  sides have different scales and never interleave).
+- **Split fill, not tiered.** Each side gets its own half of the budget.
+  Plan-first was retired by the first live run of `drift()`: seven plan claims
+  consumed the whole 400-token budget and 0 of 16 state facts showed — a
+  two-sided pack that shows one side is not two-sided. The window totals say
+  how much of each side was cut, and a plan fact with no echo is still
+  reported in `unbacked` regardless of the fill, so nothing uncorroborated is
+  silently lost.
+- **Marker window.** Echoes are computed over the recalled state window
+  (`search ∪ probe ∪ related` at `--top`), not the whole store: an echo fact
+  outside the window cannot corroborate. That is why the `unbacked` note
+  says "verify before treating it as drift" — `unbacked` means "no echo in
+  the window", and the remedy for a claim that matters is a wider window
+  (`--top`) or a targeted probe/search.
 - **`related()` on the state side.** Kept (spike decision): it is the
   structural net for state that never names the project. Note the dedupe
   requirement — the spike caught `related()` returning an entity's own facts

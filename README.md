@@ -76,6 +76,7 @@ Files:
 - `store.py` — fact store (SQLite + FTS5), entity extraction, regex statement extraction
 - `retrieval.py` — search / probe / related / reason (SQL entity graph composes, HRR ranks within set)
 - `brief.py` — `brief`: the token-budgeted context pack (search ∪ probe, tiered rank, budget fill) — the shared implementation behind the CLI subcommand, the OpenCode tool, and the Hermes provider action
+- `drift.py` — `drift`: the two-sided plan/state comparison pack (exact tag+entity plan query, recency-ranked state window, overlap-coefficient echo markers) — read-only recall-and-assembly; the agent judges drift, the core never scores it (design: `docs/drift.md`)
 - `holographic.py` — HRR phase-vector algebra (numpy optional; without it, keyword mode)
 - `provider.py` — Hermes `MemoryProvider` adapter (in-process plugin)
 - `cli.py` — generic entrypoint for every other harness (`python3 -m tiberius.cli`)
@@ -373,6 +374,7 @@ python3 -m tiberius.cli --db PATH probe "entity"
 python3 -m tiberius.cli --db PATH related "entity"
 python3 -m tiberius.cli --db PATH reason "a" "b"
 python3 -m tiberius.cli --db PATH brief "query" [--budget N]
+python3 -m tiberius.cli --db PATH drift "project" [--since S] [--budget N] [--top N] [--support T]
 python3 -m tiberius.cli --db PATH contradict [--category C] [--threshold T] [--top N]
 python3 -m tiberius.cli --db PATH add "fact" [--category C] [--tags a,b]
 python3 -m tiberius.cli --db PATH feedback <id> helpful|unhelpful

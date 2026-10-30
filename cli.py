@@ -3,6 +3,7 @@
 Usage (repo dir importable as package ``tiberius``, i.e. its PARENT on PYTHONPATH):
   python3 -m tiberius.cli [--db PATH] search "query" [--top N] [--category C] [--min-trust T]
   python3 -m tiberius.cli [--db PATH] brief "query" [--budget N] [--floor T] [--top N]
+  python3 -m tiberius.cli [--db PATH] drift "project" [--since S] [--budget N] [--top N] [--support T]
   python3 -m tiberius.cli [--db PATH] probe "entity"
   python3 -m tiberius.cli [--db PATH] related "entity"
   python3 -m tiberius.cli [--db PATH] reason "entity" "entity" [...]
@@ -28,6 +29,7 @@ import sys
 from pathlib import Path
 
 from .brief import brief
+from .drift import drift
 from .retrieval import FactRetriever
 from .store import MemoryStore, extract_statements
 
@@ -229,6 +231,12 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--category", help="restrict to one fact category")
     s.add_argument("--min-trust", type=float, default=0.3, help="min trust for the search pool (default 0.3)")
     s.add_argument("--skills", type=int, default=2, help="max skill-lane entries (default 2)")
+    s = sub.add_parser("drift", help="two-sided plan/state pack: plan claims vs state since the anchor, echo markers")
+    s.add_argument("project")
+    s.add_argument("--since", help="state window start: ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w); default = oldest plan fact")
+    s.add_argument("--budget", type=int, default=300, help="token budget, char/4 estimate (default 300)")
+    s.add_argument("--top", type=int, default=20, help="candidate pool size per state-side recall (default 20)")
+    s.add_argument("--support", type=float, default=0.15, help="min overlap coefficient for a state echo to count (default 0.15)")
     s = sub.add_parser("probe", help="all facts linked to one entity")
     s.add_argument("entity")
     s = sub.add_parser("related", help="one hop: facts sharing any of the entity's entities")
@@ -283,6 +291,11 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(brief(a.query, ret, store, budget=a.budget, floor=a.floor,
                                    top=a.top, category=a.category, min_trust=a.min_trust,
                                    skills=a.skills)))
+            return 0
+        if a.cmd == "drift":
+            a.budget, a.top, a.support = max(1, a.budget), max(1, a.top), max(0.0, a.support)
+            print(json.dumps(drift(a.project, ret, store, since=a.since, budget=a.budget,
+                                   top=a.top, support=a.support)))
             return 0
         total = None
         if a.cmd == "search":
