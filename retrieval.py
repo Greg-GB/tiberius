@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from .store import MemoryStore
 
 from . import holographic as hrr
+from .store import _parse_since
 
 _FACT_COLUMNS = "fact_id, content, category, tags, trust_score, retrieval_count, helpful_count, created_at, updated_at"
 _ROLE_ENTITY, _ROLE_CONTENT = hrr.ROLE_ENTITY, hrr.ROLE_CONTENT
@@ -64,22 +65,27 @@ class FactRetriever:
             (name, name))
         return row["name"] if row else name
 
-    def search(self, query: str, category: str | None = None, min_trust: float = 0.3, limit: int = 10) -> list[dict]:
+    def search(self, query: str, category: str | None = None, min_trust: float = 0.3, limit: int = 10,
+               since: str | None = None) -> list[dict]:
         """Public keyword search: _search plus retrieval recording. probe/related/reason fallbacks
-        call _search directly so each recall counts its returned facts exactly once."""
-        return self._recorded(self._search(query, category, min_trust, limit))
+        call _search directly so each recall counts its returned facts exactly once.
+        since (the store._parse_since forms) window the candidate pool on created_at, so limit
+        sees the windowed pool — omitted = unfiltered, as before."""
+        return self._recorded(self._search(query, category, min_trust, limit, since=since))
 
-    def match_count(self, query: str, category: str | None = None, min_trust: float = 0.3) -> int:
+    def match_count(self, query: str, category: str | None = None, min_trust: float = 0.3,
+                    since: str | None = None) -> int:
         """How many facts match a query at or above min_trust — the prefetch coverage counter.
         Counts the FTS candidate pool (same exact-then-prefix fallback as _search) with no HRR
-        rerank and no retrieval recording, so the usage signal stays clean.
+        rerank and no retrieval recording, so the usage signal stays clean. Takes the same
+        since window as search so a windowed caller's 'N of M' marker describes the window.
         ponytail: counts the FTS pool, not the reranked _search output; if _search ever filters
         by score, recount through it."""
         with self.store._lock:
             expanded = self._expand_aliases(query)
-            n = len(self._fts_candidates(expanded, category, min_trust, 10_000))
+            n = len(self._fts_candidates(expanded, category, min_trust, 10_000, since=since))
             if n == 0:
-                n = len(self._fts_candidates(expanded, category, min_trust, 10_000, prefix=True))
+                n = len(self._fts_candidates(expanded, category, min_trust, 10_000, prefix=True, since=since))
             return n
 
     def find_duplicates(self, content: str, new_id: int, threshold: float = 0.5, limit: int = 3) -> list[dict]:
@@ -102,7 +108,8 @@ class FactRetriever:
                 break
         return out
 
-    def _search(self, query: str, category: str | None = None, min_trust: float = 0.3, limit: int = 10) -> list[dict]:
+    def _search(self, query: str, category: str | None = None, min_trust: float = 0.3, limit: int = 10,
+                since: str | None = None) -> list[dict]:
         with self.store._lock:  # retriever reads must not interleave with a store writer on the shared connection
             """FTS5 candidates (limit*3) → Jaccard + HRR rerank → trust weighting → optional temporal decay
             0.5^(age_days / half_life). Returns fact dicts with 'score', sorted desc."""
@@ -110,11 +117,11 @@ class FactRetriever:
             # query (Jaccard + HRR), and the prefix fallback fires only when the exact pass
             # found nothing, so a working candidate set is never diluted.
             expanded = self._expand_aliases(query)
-            candidates = self._fts_candidates(expanded, category, min_trust, limit * 3)
+            candidates = self._fts_candidates(expanded, category, min_trust, limit * 3, since=since)
             if not candidates:
                 # Exact tokens miss inflections (backup/backups, rotation/rotate): retry with
                 # prefix tokens ("tok"*) when — and only when — the exact pass returned nothing.
-                candidates = self._fts_candidates(expanded, category, min_trust, limit * 3, prefix=True)
+                candidates = self._fts_candidates(expanded, category, min_trust, limit * 3, prefix=True, since=since)
             query_tokens = self._tokenize(query)
             # Query vector is loop-invariant; encode lazily on the first candidate that carries an HRR vector
             # so stores whose hrr_vector was never backfilled don't pay for it.
@@ -323,13 +330,18 @@ class FactRetriever:
                     extra.append(n)
         return f"{query} {' '.join(extra)}".strip() if extra else query
 
-    def _fts_candidates(self, query: str, category: str | None, min_trust: float, limit: int, prefix: bool = False) -> list[dict]:
+    def _fts_candidates(self, query: str, category: str | None, min_trust: float, limit: int,
+                        prefix: bool = False, since: str | None = None) -> list[dict]:
         """Raw FTS5 MATCH candidates with rank normalized to [0, 1] as 'fts_rank'.
-        prefix=True turns each token into a prefix match ("tok"*), used as the zero-candidate fallback."""
+        prefix=True turns each token into a prefix match ("tok"*), used as the zero-candidate fallback.
+        since (the store._parse_since forms) filters the pool on created_at — facts created at or
+        after it — so the caller's limit/budget is consumed from the windowed pool."""
         category_clause = "AND f.category = ? " if category else ""
-        params = [self._sanitize_fts_query(query, prefix=prefix)] + ([category] if category else []) + [min_trust, limit]
+        since_clause = "AND f.created_at >= ? " if since else ""
+        params = [self._sanitize_fts_query(query, prefix=prefix)] + ([category] if category else []) \
+                 + ([_parse_since(since)] if since else []) + [min_trust, limit]
         sql = ("SELECT f.*, facts_fts.rank as fts_rank_raw FROM facts_fts JOIN facts f ON f.fact_id = facts_fts.rowid "
-               f"WHERE facts_fts MATCH ? {category_clause}AND f.trust_score >= ? ORDER BY facts_fts.rank LIMIT ?")
+               f"WHERE facts_fts MATCH ? {category_clause}{since_clause}AND f.trust_score >= ? ORDER BY facts_fts.rank LIMIT ?")
         try:
             results = [dict(row) for row in self.store._conn.execute(sql, params).fetchall()]
         except Exception as exc:

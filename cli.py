@@ -223,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--top", type=int, default=5)
     s.add_argument("--category")
     s.add_argument("--min-trust", type=float, default=0.3)
+    s.add_argument("--since", help="only facts created at or after: ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w)")
     s = sub.add_parser("brief", help="token-budgeted context pack: search ∪ probe, floored, budget-filled")
     s.add_argument("query")
     s.add_argument("--budget", type=int, default=300, help="token budget, char/4 estimate (default 300)")
@@ -230,6 +231,7 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--top", type=int, default=20, help="candidate pool size per search/probe (default 20)")
     s.add_argument("--category", help="restrict to one fact category")
     s.add_argument("--min-trust", type=float, default=0.3, help="min trust for the search pool (default 0.3)")
+    s.add_argument("--since", help="window the search pool to facts created at or after: ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w)")
     s.add_argument("--skills", type=int, default=2, help="max skill-lane entries (default 2)")
     s = sub.add_parser("drift", help="two-sided plan/state pack: plan claims vs state since the anchor, echo markers")
     s.add_argument("project")
@@ -294,7 +296,7 @@ def main(argv: list[str] | None = None) -> int:
             a.budget, a.floor, a.skills = max(1, a.budget), max(0.0, a.floor), max(0, a.skills)
             print(json.dumps(brief(a.query, ret, store, budget=a.budget, floor=a.floor,
                                    top=a.top, category=a.category, min_trust=a.min_trust,
-                                   skills=a.skills)))
+                                   since=a.since, skills=a.skills)))
             return 0
         if a.cmd == "drift":
             a.budget, a.top, a.support = max(1, a.budget), max(1, a.top), max(0.0, a.support)
@@ -303,8 +305,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         total = None
         if a.cmd == "search":
-            rows = ret.search(a.query, category=a.category, min_trust=a.min_trust, limit=a.top)
-            total = ret.match_count(a.query, category=a.category, min_trust=a.min_trust)
+            rows = ret.search(a.query, category=a.category, min_trust=a.min_trust, limit=a.top, since=a.since)
+            total = ret.match_count(a.query, category=a.category, min_trust=a.min_trust, since=a.since)
         elif a.cmd == "probe":
             rows = ret.probe(a.entity, limit=10)
         elif a.cmd == "show":

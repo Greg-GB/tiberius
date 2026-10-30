@@ -308,3 +308,58 @@ def test_related_dedupes_own_facts(tmp_path):
         assert len(ids) == 2  # exactly the entity's two facts (the store holds nothing else)
     finally:
         store.close()
+
+# ---------------------------------------------------------------------------
+# since windows on search / match_count / _fts_candidates (docs/since.md)
+# ---------------------------------------------------------------------------
+
+def _backdate(store, fact_id: int) -> None:
+    """created_at is set only by the write path; tests backdate rows directly."""
+    store._conn.execute("UPDATE facts SET created_at = '2026-01-01 00:00:00' WHERE fact_id = ?", (fact_id,))
+
+
+def test_search_since_windows_the_pool(tmp_path):
+    """since (relative form) excludes a backdated fact from search and match_count;
+    omitted since is unchanged."""
+    store = MemoryStore(str(tmp_path / "since.db"))
+    try:
+        old = store.add_fact("AcmeWidget crate line 1 ships to the docks on Tuesdays.")
+        new = store.add_fact("AcmeWidget crate line 2 ships to the docks on Wednesdays.")
+        _backdate(store, old)
+        ret = FactRetriever(store=store)
+        assert {f["fact_id"] for f in ret.search("AcmeWidget")} == {old, new}
+        assert [f["fact_id"] for f in ret.search("AcmeWidget", since="24h")] == [new]
+        assert ret.match_count("AcmeWidget") == 2
+        assert ret.match_count("AcmeWidget", since="24h") == 1
+    finally:
+        store.close()
+
+
+def test_search_since_windows_the_prefix_fallback(tmp_path):
+    """The prefix-fallback pass must honor the window: query 'rotat' exact-matches
+    nothing (exact pass empty), the prefix pass finds 'rotation' (old) and
+    'rotations' (new); the window keeps only the new one."""
+    store = MemoryStore(str(tmp_path / "since_prefix.db"))
+    try:
+        old = store.add_fact("ZetaDock rotation table keeps weekly slots.")
+        new = store.add_fact("ZetaDock rotations happen on Tuesdays.")
+        _backdate(store, old)
+        ret = FactRetriever(store=store)
+        assert {f["fact_id"] for f in ret.search("rotat")} == {old, new}
+        assert [f["fact_id"] for f in ret.search("rotat", since="24h")] == [new]
+        assert ret._fts_candidates("rotat", None, 0.3, 30, prefix=True, since="24h") \
+            and all(f["fact_id"] == new for f in ret._fts_candidates("rotat", None, 0.3, 30, prefix=True, since="24h"))
+    finally:
+        store.close()
+
+
+def test_since_invalid_value_raises_valueerror(tmp_path):
+    """CLI contract upstream: bad since -> ValueError -> JSON error, not a traceback."""
+    store = MemoryStore(str(tmp_path / "since_bad.db"))
+    try:
+        store.add_fact("AcmeWidget crate ships.")
+        ret = FactRetriever(store=store)
+        with pytest.raises(ValueError):
+            ret.search("AcmeWidget", since="banana")
+    finally:
+        store.close()

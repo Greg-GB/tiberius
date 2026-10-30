@@ -342,18 +342,20 @@ export default Plugin.define({
       e.add({
         name: "memory_search",
         description: "Search long-term local memory (facts about the user, the environment, projects, decisions, preferences). Call it before answering anything about the environment, the project, or user preferences, and before starting work a past decision may affect. Conversation context is not a substitute — stored facts may not be in it.",
-        input: { type: "object", properties: { query: { type: "string", description: "Keywords for the fact you need" }, top: { type: "integer", description: "Max results (default 5)" } }, required: ["query"] },
+        input: { type: "object", properties: { query: { type: "string", description: "Keywords for the fact you need" }, top: { type: "integer", description: "Max results (default 5)" }, since: { type: "string", description: "Only facts created at or after: ISO date (UTC) or relative (30m/2h/7d/2w)" } }, required: ["query"] },
         execute: async (input: any) => {
-          const r = await callEngine(engine, baseArgs, ["search", String(input.query), "--top", String(input.top ?? 5)], undefined, env);
+          const sinceArgs = input.since ? ["--since", String(input.since)] : [];
+          const r = await callEngine(engine, baseArgs, ["search", String(input.query), ...sinceArgs, "--top", String(input.top ?? 5)], undefined, env);
           return { content: JSON.stringify((r?.results ?? []).map((f) => ({ id: f.fact_id, content: f.content, category: f.category, trust: f.trust_score }))) };
         },
       });
       e.add({
         name: "memory_brief",
         description: "Token-budgeted context pack for a task: search plus entity probe in one call, relevance-floored, whole facts only, within the budget — with the store's window marker (how many more matches exist). Use it when starting a task or briefing a fresh context (e.g. a subagent prompt) instead of several separate recall calls.",
-        input: { type: "object", properties: { query: { type: "string", description: "The task or topic the context is for" }, budget: { type: "integer", description: "Token budget for the block (default 300)" } }, required: ["query"] },
+        input: { type: "object", properties: { query: { type: "string", description: "The task or topic the context is for" }, budget: { type: "integer", description: "Token budget for the block (default 300)" }, since: { type: "string", description: "Only facts created at or after: ISO date (UTC) or relative (30m/2h/7d/2w)" } }, required: ["query"] },
         execute: async (input: any, context: any) => {
-          const r: EngineResult = (await callEngine(engine, baseArgs, ["brief", String(input.query), "--budget", String(input.budget ?? 300)], undefined, env)) ?? {};
+          const sinceArgs = input.since ? ["--since", String(input.since)] : [];
+          const r: EngineResult = (await callEngine(engine, baseArgs, ["brief", String(input.query), ...sinceArgs, "--budget", String(input.budget ?? 300)], undefined, env)) ?? {};
           if (r.error) return { content: JSON.stringify(r) };
           // A brief IS a recall, and its output is in the conversation: mark the
           // shown facts as already-shown for this session so the per-turn

@@ -247,9 +247,11 @@ user text into candidate facts — one match per category:
 reason/contradict/add/feedback/remove/update/list/extract. Contract: **JSON on
 stdout, exit 0**; errors (unknown fact_id, empty add content, bare `update`
 with no fields, bad `--since`, sqlite-level failures) are `{"error": ...}` +
-exit 1 — no tracebacks (callers parse stdout as JSON unconditionally). `list`
-accepts `--since` (ISO date/datetime UTC or relative 30m/2h/7d/2w) — filtered
-against `created_at` via same-format string comparison. `add` also returns
+exit 1 — no tracebacks (callers parse stdout as JSON unconditionally). `list`,
+`search`, and `brief` accept `--since` (ISO date/datetime UTC or relative
+30m/2h/7d/2w) — filtered against `created_at` via same-format string
+comparison; `search`/`brief` window the candidate pool, not the results
+(`docs/since.md`). `add` also returns
 `possible_duplicates` — near-identical prior facts surfaced via the shared
 `FactRetriever.find_duplicates` check (raw token Jaccard ≥ 0.5 over the FTS
 top-5, trust-independent); report-only, the caller removes if it agrees.

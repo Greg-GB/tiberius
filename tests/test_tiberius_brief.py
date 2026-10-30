@@ -139,3 +139,21 @@ def test_brief_shared_function_direct_call(tmp_path, capsys):
         assert out["count"] == 1 and out["total"] == 3  # one 14-token fact fits; window says 3
     finally:
         store.close()
+
+
+def test_brief_since_windows_pool_marker_and_probe_tier(tmp_path, capsys):
+    """brief --since: search pool, the total marker, AND the entity-probe tier all
+    honor the window (a stale entity-linked fact must not re-enter the pack)."""
+    from hermes_plugin_tiberius.store import MemoryStore
+    db = str(tmp_path / "m.db")
+    ids = _seed(capsys, db, n=4)
+    store = MemoryStore(db_path=db)
+    store._conn.execute("UPDATE facts SET created_at = '2026-01-01 00:00:00' WHERE fact_id IN (?, ?)", (ids[0], ids[1]))
+    store.close()
+    out = _run(capsys, "--db", db, "brief", "AcmeWidget", "--budget", "500", "--since", "24h")
+    assert out["count"] == 2
+    assert out["total"] == 2  # the marker describes the window, not the store
+    shown = {f["fact_id"] for f in out["facts"] + out["skills"]}
+    assert ids[0] not in shown and ids[1] not in shown  # the probe tier would have re-admitted them
+    out = _run(capsys, "--db", db, "brief", "AcmeWidget", "--budget", "500")
+    assert out["count"] == 4 and out["total"] == 4

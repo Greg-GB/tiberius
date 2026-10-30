@@ -97,7 +97,8 @@ Files:
   and session-end extraction).
 - **Full operation parity**: every adapter exposes the same surface — search / probe /
   show / related / reason, plus CRUD and hygiene (`add`, `update`, `remove`,
-  `list` with `--since` time filtering, `contradict`, `feedback`). Every
+  `list`, `contradict`, `feedback`). `list`, `search`, and `brief` take
+  `--since` time filtering (`created_at` at or after; `docs/since.md`). Every
   adapter also has
   `brief` (the token-budgeted task context pack) — a CLI subcommand, the
   OpenCode `memory_brief` tool, and the Hermes provider's
@@ -378,11 +379,11 @@ cd opencode && npm ci && npm run typecheck && npm test
 The repo dir must be importable as package `tiberius` (its parent on `PYTHONPATH`), then:
 
 ```bash
-python3 -m tiberius.cli --db PATH search "query" [--top N]
+python3 -m tiberius.cli --db PATH search "query" [--top N] [--since S]
 python3 -m tiberius.cli --db PATH probe "entity"
 python3 -m tiberius.cli --db PATH related "entity"
 python3 -m tiberius.cli --db PATH reason "a" "b"
-python3 -m tiberius.cli --db PATH brief "query" [--budget N]
+python3 -m tiberius.cli --db PATH brief "query" [--budget N] [--since S]
 python3 -m tiberius.cli --db PATH drift "project" [--since S] [--budget N] [--top N] [--support T]
 python3 -m tiberius.cli --db PATH contradict [--category C] [--threshold T] [--top N]
 python3 -m tiberius.cli --db PATH add "fact" [--category C] [--tags a,b]

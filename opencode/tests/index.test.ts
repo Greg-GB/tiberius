@@ -596,6 +596,22 @@ test("memory_brief renders the window marker when the budget truncates the pool"
   });
 });
 
+test("memory_search passes since to the engine when set, omits it when unset", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_search");
+    await tool.execute({ query: "project memory", since: "24h" });
+    assert.deepEqual(logEntries().map((e) => e.argv), [A("search", "project memory", "--since", "24h", "--top", "5")]);
+  });
+});
+
+test("memory_brief passes since to the engine", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_brief");
+    await tool.execute({ query: "project memory", budget: 50, since: "2026-01-01" }, { sessionID: "ses1" });
+    assert.deepEqual(logEntries().map((e) => e.argv), [A("brief", "project memory", "--since", "2026-01-01", "--budget", "50")]);
+  });
+});
+
 test("memory_show calls the engine, passes the fact id, and marks the fact seen", async () => {
   await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
     const tool = h.tools.find((t) => t.name === "memory_show");
