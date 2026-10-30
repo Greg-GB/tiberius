@@ -57,6 +57,28 @@ def test_cli_show_unknown_id_is_error(tmp_path, capsys):
     assert rc == 1 and "not found" in out["error"]
 
 
+def test_cli_entities_lists_bare_array(tmp_path, capsys):
+    """entities: the contract is a bare JSON array (no {"results": ...} wrapper),
+    fact_count desc then name asc, aliases parsed to a list."""
+    db = str(tmp_path / "e.db")
+    _run(capsys, "--db", db, "add", "AcmeWidget aka AW ships to the docks on Tuesdays.")
+    _run(capsys, "--db", db, "add", "AcmeWidget crates are stamped with the batch number.")
+    _run(capsys, "--db", db, "add", "BetaCo signs the dock manifests every Friday.")
+    out = _run(capsys, "--db", db, "entities")
+    assert isinstance(out, list)
+    assert [r["name"] for r in out] == ["AcmeWidget", "BetaCo", "Friday", "Tuesdays"]
+    assert [r["fact_count"] for r in out] == [2, 1, 1, 1]
+    assert out[0]["aliases"] == ["AW"]
+
+
+def test_cli_entities_top_caps_the_list(tmp_path, capsys):
+    db = str(tmp_path / "e.db")
+    _run(capsys, "--db", db, "add", "AcmeWidget aka AW ships to the docks on Tuesdays.")
+    _run(capsys, "--db", db, "add", "BetaCo signs the dock manifests every Friday.")
+    out = _run(capsys, "--db", db, "entities", "--top", "1")
+    assert [r["name"] for r in out] == ["AcmeWidget"]  # tied counts: name asc
+
+
 def test_cli_probe_and_extract(tmp_path, capsys, monkeypatch):
     db = str(tmp_path / "m.db")
     _run(capsys, "--db", db, "add", "The deploy pipeline uses Docker on the build host.")

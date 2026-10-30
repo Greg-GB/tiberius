@@ -330,3 +330,39 @@ def test_get_fact_unknown_id_returns_none(tmp_path, db_path):
     store = MemoryStore(db_path, hrr_dim=64)
     assert store.get_fact(99999) is None
     store.close()
+
+
+def test_list_entities_orders_by_count_then_name(tmp_path, db_path):
+    """entities discovery: sorted by fact_count desc, then name asc; aliases parsed from the column."""
+    store = MemoryStore(db_path, hrr_dim=64)
+    store.add_fact("AcmeWidget aka AW ships to the docks on Tuesdays.")
+    store.add_fact("AcmeWidget crates are stamped with the batch number.")
+    store.add_fact("BetaCo signs the dock manifests every Friday.")
+    rows = store.list_entities()
+    assert [r["name"] for r in rows] == ["AcmeWidget", "BetaCo", "Friday", "Tuesdays"]
+    assert [r["fact_count"] for r in rows] == [2, 1, 1, 1]
+    assert rows[0]["aliases"] == ["AW"]  # comma column parsed to a list
+    assert rows[1]["aliases"] == []      # no aliases -> empty list, not None
+    store.close()
+
+
+def test_list_entities_reports_orphans_with_zero_count(tmp_path, db_path):
+    """fact_count 0 is legal: an entity whose facts were all deleted still appears (LEFT JOIN)."""
+    store = MemoryStore(db_path, hrr_dim=64)
+    fid = store.add_fact("GammaCorp filed the quarterly report on Monday.")
+    assert any(r["name"] == "GammaCorp" and r["fact_count"] == 1 for r in store.list_entities())
+    assert store.remove_fact(fid)
+    orphan = next(r for r in store.list_entities() if r["name"] == "GammaCorp")
+    assert orphan["fact_count"] == 0
+    store.close()
+
+
+def test_list_entities_caps_at_top(tmp_path, db_path):
+    store = MemoryStore(db_path, hrr_dim=64)
+    store.add_fact("AcmeWidget aka AW ships to the docks on Tuesdays.")
+    store.add_fact("BetaCo signs the dock manifests every Friday.")
+    assert [r["name"] for r in store.list_entities(top=1)] == ["AcmeWidget"]  # tied counts: name asc
+    assert len(store.list_entities(top=100)) == 4  # AcmeWidget, BetaCo, Friday, Tuesdays
+    assert [r["name"] for r in store.list_entities(top=-5)] == \
+           [r["name"] for r in store.list_entities(top=1)]  # clamped to 1, not an unlimited dump
+    store.close()

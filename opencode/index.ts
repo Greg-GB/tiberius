@@ -36,8 +36,9 @@
  *
  * What it does:
  *   - tools: memory_search / memory_brief / memory_drift / memory_probe /
- *     memory_show / memory_related / memory_reason / memory_add / memory_feedback /
- *     memory_update / memory_remove / memory_list (same operation surface as
+ *     memory_show / memory_entities / memory_related / memory_reason /
+ *     memory_add / memory_feedback / memory_update / memory_remove /
+ *     memory_list (same operation surface as
  *     the Hermes provider — see skills/tiberius-usage/SKILL.md), plus, with
  *     skillDirs: memory_skill_search (escape hatch past the per-turn top-k)
  *     and memory_skill_load (SKILL.md body for skills the built-in skill tool
@@ -512,6 +513,17 @@ export default Plugin.define({
         execute: async (input: any) => {
           const r = await callEngine(engine, baseArgs, ["remove", String(input.fact_id)], undefined, env);
           return { content: JSON.stringify(r ?? {}) };
+        },
+      });
+      e.add({
+        name: "memory_entities",
+        description: "List entities with their linked-fact count and aliases — entity discovery for memory_probe / memory_related / memory_reason / memory_brief / memory_drift (they take an entity name; this lists the names). fact_count 0 is legal (orphaned entity).",
+        input: { type: "object", properties: { top: { type: "integer", description: "Max entities (default 20)" } } },
+        execute: async (input: any) => {
+          // Output contract (docs/entities.md): a bare JSON array, one object per
+          // entity — the engine's stdout is already the array, so pass it through.
+          const r = await callEngine(engine, baseArgs, ["entities", "--top", String(input.top ?? 20)], undefined, env);
+          return { content: JSON.stringify(r ?? []) };
         },
       });
       e.add({

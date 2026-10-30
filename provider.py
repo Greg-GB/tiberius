@@ -51,7 +51,7 @@ FACT_STORE_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["add", "search", "probe", "show", "brief", "drift", "related", "reason", "contradict", "update", "remove", "list"]},
+            "action": {"type": "string", "enum": ["add", "search", "probe", "show", "entities", "brief", "drift", "related", "reason", "contradict", "update", "remove", "list"]},
             "content": {"type": "string", "description": "Fact content (required for 'add')."},
             "query": {"type": "string", "description": "Search query (required for 'search'/'brief')."},
             "project": {"type": "string", "description": "Project name for 'drift' (its plan facts are the 'plan'-tagged facts that name it)."},
@@ -423,6 +423,14 @@ class TiberiusMemoryProvider(MemoryProvider):
             return json.dumps({"error": f"fact_id {fact_id} not found"})
         return json.dumps({"fact": fact})
 
+    def _entities(self, a: dict) -> str:
+        """'entities': list entities with linked-fact counts and aliases — entity discovery
+        for probe/related/reason/brief/drift (they take an entity name but nothing lists the
+        names). No required args; an optional 'limit' caps the list (the contract default is
+        20, not the schema-wide 10). The output contract (docs/entities.md) is a bare JSON
+        array — fact_count 0 is legal (orphaned entity rows)."""
+        return json.dumps(self._store.list_entities(top=int(a.get("limit", 20))))
+
     _TOOL_HANDLERS = {
         "fact_store": _tool_handler({
             "add": lambda self, a: self._add(a),
@@ -430,6 +438,7 @@ class TiberiusMemoryProvider(MemoryProvider):
                 a["query"], category=a.get("category"), min_trust=float(a.get("min_trust", self._min_trust)), limit=_limit(a))),
             "probe": lambda self, a: self._entity_query("probe", a),
             "show": lambda self, a: self._show(a),
+            "entities": lambda self, a: self._entities(a),
             "brief": lambda self, a: json.dumps(brief(
                 a["query"], self._retriever, self._store,
                 budget=max(1, int(a.get("budget", 300))),

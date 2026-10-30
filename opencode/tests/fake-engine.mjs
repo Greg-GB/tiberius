@@ -192,6 +192,19 @@ switch (cmd) {
     console.log(JSON.stringify({ fact: { fact_id: hit.fact_id, content: hit.content, category: "general", tags: hit.tags, trust_score: hit.trust_score, retrieval_count: 0, helpful_count: 0, created_at: "2026-01-01 00:00:00", updated_at: "2026-01-01 00:00:00", entities: [{ name: "User", aliases: [] }] } }));
     break;
   }
+  case "entities": {
+    if (process.env.TIBERUS_FAKE_FAIL === "entities") fail("entities");
+    // Emulates cli.py entities (docs/entities.md): a bare JSON array — one object per
+    // entity (name, aliases, fact_count), sorted by fact_count desc then name asc;
+    // --top caps the list (default 20).
+    const all = [
+      { name: "AcmeWidget", aliases: ["AW"], fact_count: 2 },
+      { name: "User", aliases: [], fact_count: 1 },
+    ];
+    const top = flag("--top") ? parseInt(flag("--top"), 10) : 20;
+    console.log(JSON.stringify(all.slice(0, top)));
+    break;
+  }
   case "extract": {
     let input = "";
     process.stdin.setEncoding("utf8");

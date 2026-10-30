@@ -26,6 +26,7 @@ _HERMES_ONLY_TESTS = {
     "test_tiberius_auto_extract.py": "agent",
     "test_tiberius_hermes_brief.py": "agent",
     "test_tiberius_hermes_drift.py": "agent",
+    "test_tiberius_hermes_entities.py": "agent",
     "test_tiberius_hermes_show.py": "agent",
     "test_tiberius_hermes_skills.py": "hermes_yaml",
     "test_tiberius_profile_db_path.py": "hermes_yaml",
