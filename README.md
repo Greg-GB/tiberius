@@ -231,7 +231,8 @@ for r in sqlite3.connect('tiberius_store.db').execute(
 `opencode/index.ts` is a native OpenCode V2 plugin. Every operation shells out
 to the Python CLI in a local subprocess — the core never runs inside the node
 process, and nothing crosses the network. **Runtime-verified against live
-OpenCode 2.0.28** (2026-10-26; `memory_brief` 2026-10-29): all ten tools,
+OpenCode 2.0.28** (2026-10-26; `memory_brief` 2026-10-29;
+`memory_drift` 2026-10-30): all eleven tools,
 context injection, and session-end extraction were observed working
 end-to-end; the verified payload shapes are documented in
 [`ARCHITECTURE.md`](ARCHITECTURE.md).
@@ -299,13 +300,17 @@ restart.
 
 ### What the agent gets
 
-- **Ten tools**: `memory_search` / `memory_brief` / `memory_probe` /
-  `memory_related` / `memory_reason` / `memory_add` / `memory_feedback` /
-  `memory_update` / `memory_remove` / `memory_list` — the same operation
-  surface as the Hermes provider (`brief` is one of its `fact_store`
-  actions), where `memory_brief` is the one-call plugin form: a
-  token-budgeted context pack for a task — search ∪ entity probe, whole
-  facts only, with the window marker (design in `docs/brief.md`).
+- **Eleven tools**: `memory_search` / `memory_brief` / `memory_drift` /
+  `memory_probe` / `memory_related` / `memory_reason` / `memory_add` /
+  `memory_feedback` / `memory_update` / `memory_remove` / `memory_list` —
+  the same operation surface as the Hermes provider (`brief` and `drift`
+  are among its `fact_store` actions), where `memory_brief` is the one-call
+  plugin form: a token-budgeted context pack for a task — search ∪ entity
+  probe, whole facts only, with the window marker (design in
+  `docs/brief.md`); and `memory_drift` is the two-sided plan/state pack:
+  a project's plan facts (the `plan`-tagged claims) against its state since
+  the anchor, with per-claim echo markers — the agent reads both sides and
+  judges drift, the core never scores it (design in `docs/drift.md`).
 - **Skill catalog** (with `skillDirs` set — otherwise zero behavior change):
   skills are synced into the store as facts (`skill-sync` at session start),
   injected as a ranked block (trust floor at session start, top-k for the

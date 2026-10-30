@@ -153,7 +153,7 @@ relevance signal the floor needs — no new ranking surface.
       convention as the retriever's alias expansion (in `cli.py`, core
       trio untouched). Probe ships in v1. | — |
 | 2 | Floor calibration: 0.10 on trust-weighted score vs. a percentile of the query's own score distribution (adapts to noisy queries) | Phase 1 tests |
-| 3 | Should `--since` (state-brief variant: "what changed since X") be in v1 or a v1.1 — it overlaps the session-digest idea | v1 scope |
+| 3 | ~~Should `--since` (state-brief variant: "what changed since X") be in v1 or a v1.1~~ resolved 2026-10-30: it shipped as the drift feature's state side — the plan/state pack of [drift.md](drift.md) is exactly the state-brief variant, with a plan side for the drift judgment | — |
 | 4 | Default budget: 300 validated by the spike for in-session use; subagent spawns may want 400–500. Flag exists either way | none |
 
 ## 6. Phase 0 spike (2026-10-28) — GO
