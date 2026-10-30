@@ -1,6 +1,8 @@
 # Temporal windows on `search` and `brief` (`--since`)
 
-Status: **unreleased** — candidate from the agent-experience review.
+Status: **shipped** — v0.6.1 (2026-10-30): `--since` window on CLI
+`search` / `brief`, OpenCode `memory_search` / `memory_brief` `since`
+param, Hermes provider `fact_store(action='search' | 'brief')` `since`.
 
 ## 1. Why
 
