@@ -15,6 +15,7 @@ from agent.memory_provider import MemoryProvider
 from tools.registry import tool_error
 from utils import is_truthy_value
 from .brief import brief
+from .drift import drift
 from .store import MemoryStore, extract_statements
 from .retrieval import FactRetriever
 from hermes_cli.config import cfg_get
@@ -36,6 +37,11 @@ FACT_STORE_SCHEMA = {
         "• brief — One-call context pack for a task: search + entity probe, token-budgeted (whole facts only, "
         "default 300) with a window marker (how many more matches exist). Use it when starting a task instead of "
         "several separate recall calls.\n"
+        "• drift — Project drift check: the project's plan facts (tag 'plan': purpose, invariants) vs the state "
+        "facts accumulated since the anchor (default: the oldest plan fact), with per-claim echo markers. Read both sides and "
+        "judge drift yourself — the markers are hints, not verdicts. The 'unbacked' field (when present) lists "
+        "plan claims with no state echo since the anchor: stale, unbuilt, or never recorded — verify before "
+        "treating them as drift.\n"
         "• reason — Compositional: facts connected to MULTIPLE entities simultaneously.\n"
         "• contradict — Memory hygiene: find facts making conflicting claims.\n• update/remove/list — CRUD operations.\n\n"
         "IMPORTANT: Before answering anything about the user, the environment, or the project, "
@@ -45,10 +51,12 @@ FACT_STORE_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["add", "search", "probe", "brief", "related", "reason", "contradict", "update", "remove", "list"]},
+            "action": {"type": "string", "enum": ["add", "search", "probe", "brief", "drift", "related", "reason", "contradict", "update", "remove", "list"]},
             "content": {"type": "string", "description": "Fact content (required for 'add')."},
             "query": {"type": "string", "description": "Search query (required for 'search'/'brief')."},
-            "budget": {"type": "integer", "description": "'brief': token budget for the context pack (default: 300)."},
+            "project": {"type": "string", "description": "Project name for 'drift' (its plan facts are the 'plan'-tagged facts that name it)."},
+            "budget": {"type": "integer", "description": "'brief'/'drift': token budget for the pack (default: 300)."},
+            "support": {"type": "number", "description": "'drift': min overlap coefficient for a state fact to count as a plan-claim echo (default: 0.15)."},
             "entity": {"type": "string", "description": "Entity name for 'probe'/'related'."},
             "entities": {"type": "array", "items": {"type": "string"}, "description": "Entity names for 'reason'."},
             "fact_id": {"type": "integer", "description": "Fact ID for 'update'/'remove'."},
@@ -56,7 +64,7 @@ FACT_STORE_SCHEMA = {
             "tags": {"type": "string", "description": "Comma-separated tags."},
             "trust_delta": {"type": "number", "description": "Trust adjustment for 'update'."},
             "min_trust": {"type": "number", "description": "Minimum trust filter (default: 0.3)."},
-            "since": {"type": "string", "description": "'list': only facts created at or after — ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w)."},
+            "since": {"type": "string", "description": "'list': only facts created at or after. 'drift': the state-window anchor. Both: ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w); 'drift' defaults to the oldest plan fact."},
             "limit": {"type": "integer", "description": "Max results (default: 10)."},
         },
         "required": ["action"],
@@ -413,6 +421,10 @@ class TiberiusMemoryProvider(MemoryProvider):
                 a["query"], self._retriever, self._store,
                 budget=max(1, int(a.get("budget", 300))),
                 category=a.get("category"), min_trust=float(a.get("min_trust", self._min_trust)))),
+            "drift": lambda self, a: json.dumps(drift(
+                a["project"], self._retriever, self._store,
+                since=a.get("since"), budget=max(1, int(a.get("budget", 300))),
+                support=float(a.get("support", 0.15)))),
             "related": lambda self, a: self._entity_query("related", a),
             "reason": lambda self, a: _results(self._retriever.reason(a["entities"], category=a.get("category"), limit=_limit(a)))
             if a.get("entities") else tool_error("reason requires 'entities' list"),
