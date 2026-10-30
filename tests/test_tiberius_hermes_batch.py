@@ -70,13 +70,13 @@ def test_add_batch_bad_item_errors_with_index_and_executes_nothing(tmp_path):
     p = _provider(tmp_path)
     p.initialize(session_id="t")
     try:
-        out = json.loads(p.handle_tool_call("fact_store", {"action": "add_batch", "facts": [
-            "The AcmeWidget crate line ships on Fridays.", "   "]}))
-        assert "facts[1]" in out["error"]
+        out = p.handle_tool_call("fact_store", {"action": "add_batch", "facts": [
+            "The AcmeWidget crate line ships on Fridays.", "   "]})
+        assert "facts[1]" in out  # raw string: format-agnostic across tool_error implementations
         out = json.loads(p.handle_tool_call("fact_store", {"action": "list", "limit": 50}))
         assert out["count"] == 0  # validated up front: nothing executed
-        out = json.loads(p.handle_tool_call("fact_store", {"action": "add_batch"}))
-        assert "error" in out
+        out = p.handle_tool_call("fact_store", {"action": "add_batch"})
+        assert "add_batch requires" in out
     finally:
         p.shutdown()
 
@@ -92,10 +92,10 @@ def test_feedback_batch_dispatch_and_mutual_exclusion(tmp_path):
         assert [r["ok"] for r in out["results"]] == [True, False, True]
         assert "not found" in out["results"][1]["error"]
         assert out["results"][0]["new_trust"] > out["results"][0]["old_trust"]
-        # Mutual exclusion + neither-set errors.
-        out = json.loads(p.handle_tool_call("fact_feedback", {"action": "helpful", "fact_id": a, "fact_ids": [b]}))
-        assert "error" in out
-        out = json.loads(p.handle_tool_call("fact_feedback", {"action": "helpful"}))
-        assert "error" in out
+        # Mutual exclusion + neither-set errors (raw strings: format-agnostic tool_error).
+        out = p.handle_tool_call("fact_feedback", {"action": "helpful", "fact_id": a, "fact_ids": [b]})
+        assert "not both" in out
+        out = p.handle_tool_call("fact_feedback", {"action": "helpful"})
+        assert "fact_id" in out
     finally:
         p.shutdown()

@@ -1,6 +1,6 @@
 ---
 name: tiberius-usage
-description: "Use when local memory tools are available (search / brief / drift / probe / show / entities / related / reason / add / feedback / update / remove / list). Recall before answering questions that may already be known; store only durable facts; rate recall quality after use."
+description: "Use when local memory tools are available (search / brief / drift / probe / show / entities / related / reason / add / add_batch / feedback / update / remove / list). Recall before answering questions that may already be known; store only durable facts; rate recall quality after use."
 ---
 
 # Using Tiberius memory effectively

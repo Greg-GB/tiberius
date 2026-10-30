@@ -666,6 +666,12 @@ test("memory_feedback passes a comma-joined fact_ids batch to the engine", async
     // Single fact_id stays on the original argv shape.
     await tool.execute({ fact_id: 7, rating: "unhelpful" }, { sessionID: "ses1" });
     assert.deepEqual(logEntries().map((e) => e.argv).slice(1), [A("feedback", "7", "unhelpful")]);
+    // Client-side mutual exclusion (mirrors the provider's _feedback): both/neither → error, no engine call.
+    const both = await tool.execute({ fact_id: 7, fact_ids: [1], rating: "helpful" }, { sessionID: "ses1" });
+    assert.deepEqual(JSON.parse(both.content), { error: "provide fact_id OR fact_ids, not both" });
+    const neither = await tool.execute({ rating: "helpful" }, { sessionID: "ses1" });
+    assert.deepEqual(JSON.parse(neither.content), { error: "provide fact_id or a non-empty fact_ids list" });
+    assert.equal(logEntries().length, 2);
   });
 });
 

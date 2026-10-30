@@ -60,7 +60,7 @@ dispatcher — the verbs are concrete and the shapes are typed.
   (15 → 16 full, 13 → 14 skill-filtered) with a fake-engine case and wiring
   test.
 - `memory_feedback` gains an optional `fact_ids` integer array, forwarded as
-  `--ids 5,6,7` (omitted when unset).
+  the comma-joined positional (`feedback 1,2,3 helpful`; omitted when unset).
 
 ## What stays unchanged
 

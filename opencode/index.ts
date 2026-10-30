@@ -477,9 +477,11 @@ export default Plugin.define({
         description: "Rate a recalled fact after using it: helpful if it was accurate, unhelpful if outdated. Trains trust scores — call this after acting on a fact. Pass fact_ids (list) to rate several in one call; each bad id is reported, not raised.",
         input: { type: "object", properties: { fact_id: { type: "integer", description: "The id returned by a recall tool" }, fact_ids: { type: "array", items: { type: "integer" }, description: "Fact ids to rate in one call (same rating). Mutually exclusive with fact_id." }, rating: { type: "string", enum: ["helpful", "unhelpful"] } }, required: ["rating"] },
         execute: async (input: any) => {
-          const id = Array.isArray(input.fact_ids) && input.fact_ids.length
-            ? input.fact_ids.map((n: any) => String(n)).join(",")
-            : String(input.fact_id);
+          const hasSingle = input.fact_id != null;
+          const hasBatch = Array.isArray(input.fact_ids) && input.fact_ids.length;
+          if (hasSingle && hasBatch) return { content: JSON.stringify({ error: "provide fact_id OR fact_ids, not both" }) };
+          if (!hasSingle && !hasBatch) return { content: JSON.stringify({ error: "provide fact_id or a non-empty fact_ids list" }) };
+          const id = hasBatch ? input.fact_ids.map((n: any) => String(n)).join(",") : String(input.fact_id);
           const r = await callEngine(engine, baseArgs, ["feedback", id, String(input.rating)], undefined, env);
           return { content: JSON.stringify(r ?? {}) };
         },
