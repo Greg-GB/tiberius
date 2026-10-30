@@ -58,7 +58,7 @@ def test_show_missing_fact_id_is_error(tmp_path):
     p = _provider(tmp_path)
     p.initialize(session_id="t")
     try:
-        out = json.loads(p.handle_tool_call("fact_store", {"action": "show"}))
-        assert "fact_id" in out["error"]
+        err = p.handle_tool_call("fact_store", {"action": "show"})
+        assert "fact_id" in err  # missing required argument, the standard tool_error contract
     finally:
         p.shutdown()

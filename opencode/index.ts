@@ -430,9 +430,24 @@ export default Plugin.define({
         name: "memory_show",
         description: "Read one stored fact by id: full content, entities, trust, and counts. Use before memory_update or memory_remove.",
         input: { type: "object", properties: { fact_id: { type: "integer", description: "The id returned by a recall tool" } }, required: ["fact_id"] },
-        execute: async (input: any) => {
-          const r = await callEngine(engine, baseArgs, ["show", String(input.fact_id)], undefined, env);
-          return { content: JSON.stringify(r?.fact ?? { error: r?.error ?? `fact_id ${input.fact_id} not found` }) };
+        execute: async (input: any, context: any) => {
+          const r: EngineResult = (await callEngine(engine, baseArgs, ["show", String(input.fact_id)], undefined, env)) ?? {};
+          const out = r.fact ?? { error: r.error ?? `fact_id ${input.fact_id} not found` };
+          // Not a recall (the engine does not count it), but the full fact
+          // content lands in the conversation: mark the shown fact as
+          // already-shown for this session so the per-turn injector does not
+          // re-surface it. context is absent outside a live session (e.g.
+          // unit tests) — skip.
+          const sessionID: string | undefined = context?.sessionID;
+          if (typeof sessionID === "string" && r.fact) {
+            let shown = injectedFacts.get(sessionID);
+            if (!shown) {
+              shown = new Set<number>();
+              injectedFacts.set(sessionID, shown);
+            }
+            shown.add(input.fact_id);
+          }
+          return { content: JSON.stringify(out) };
         },
       });
       e.add({

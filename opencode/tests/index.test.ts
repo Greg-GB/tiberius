@@ -596,6 +596,37 @@ test("memory_brief renders the window marker when the budget truncates the pool"
   });
 });
 
+test("memory_show calls the engine, passes the fact id, and marks the fact seen", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_show");
+    const out = await tool.execute({ fact_id: 1001 }, { sessionID: "ses1" });
+    assert.deepEqual(logEntries().map((e) => e.argv), [A("show", "1001")]);
+    const f = JSON.parse(out.content);
+    assert.equal(f.fact_id, 1001);
+    assert.equal(f.content, "user prefers concise answers about memory work");
+    assert.ok(Array.isArray(f.entities));
+    assert.ok(!("hrr_vector" in f));
+
+    // The full fact content lands in the conversation: the shown fact is
+    // marked seen for the session, so the per-turn injector does not
+    // re-surface it. The fake search for this query returns only 1001 —
+    // shown by the show call — so nothing injects.
+    const ev = ctxEvent("ses1", ["user memory preferences"]);
+    await h.contextHandler(ev);
+    assert.deepEqual(logEntries().map((e) => e.argv).slice(1), [A("search", "user memory preferences", "--top", "10")]);
+    assert.equal(ev.system.length, 0); // 1001 was already shown by memory_show
+  });
+});
+
+test("memory_show surfaces the unknown-id error", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_show");
+    const out = await tool.execute({ fact_id: 99999 }, { sessionID: "ses1" });
+    // The CLI's JSON error passes through un-rendered (the model reads it).
+    assert.deepEqual(JSON.parse(out.content), { error: "fact_id 99999 not found" });
+  });
+});
+
 test("memory_drift calls the engine, renders the block, and marks shown facts as seen", async () => {
   await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
     const tool = h.tools.find((t) => t.name === "memory_drift");

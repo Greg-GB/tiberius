@@ -179,6 +179,19 @@ switch (cmd) {
     console.log(JSON.stringify({ fact_id: Number(fid), rating, trust_delta: rating === "helpful" ? 0.1 : -0.1 }));
     break;
   }
+  case "show": {
+    if (process.env.TIBERUS_FAKE_FAIL === "show") fail("show");
+    // Emulates cli.py show (docs/show.md): one fact by id — the full row plus
+    // entities; unknown id is the CLI's JSON error + exit 1.
+    const arg = rest[0] ?? "";
+    const hit = FACTS.find((f) => f.fact_id === Number(arg));
+    if (!hit) {
+      console.log(JSON.stringify({ error: `fact_id ${arg} not found` }));
+      process.exit(1);
+    }
+    console.log(JSON.stringify({ fact: { fact_id: hit.fact_id, content: hit.content, category: "general", tags: hit.tags, trust_score: hit.trust_score, retrieval_count: 0, helpful_count: 0, created_at: "2026-01-01 00:00:00", updated_at: "2026-01-01 00:00:00", entities: [{ name: "User", aliases: [] }] } }));
+    break;
+  }
   case "extract": {
     let input = "";
     process.stdin.setEncoding("utf8");
