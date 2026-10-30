@@ -76,6 +76,7 @@ Files:
 - `store.py` — fact store (SQLite + FTS5), entity extraction, regex statement extraction
 - `retrieval.py` — search / probe / related / reason (SQL entity graph composes, HRR ranks within set)
 - `brief.py` — `brief`: the token-budgeted context pack (search ∪ probe, tiered rank, budget fill) — the shared implementation behind the CLI subcommand, the OpenCode tool, and the Hermes provider action
+- `drift.py` — `drift`: the two-sided plan/state comparison pack (exact tag+entity plan query, recency-ranked state window, overlap-coefficient echo markers) — read-only recall-and-assembly; the agent judges drift, the core never scores it (design: `docs/drift.md`)
 - `holographic.py` — HRR phase-vector algebra (numpy optional; without it, keyword mode)
 - `provider.py` — Hermes `MemoryProvider` adapter (in-process plugin)
 - `cli.py` — generic entrypoint for every other harness (`python3 -m tiberius.cli`)
@@ -230,7 +231,8 @@ for r in sqlite3.connect('tiberius_store.db').execute(
 `opencode/index.ts` is a native OpenCode V2 plugin. Every operation shells out
 to the Python CLI in a local subprocess — the core never runs inside the node
 process, and nothing crosses the network. **Runtime-verified against live
-OpenCode 2.0.28** (2026-10-26; `memory_brief` 2026-10-29): all ten tools,
+OpenCode 2.0.28** (2026-10-26; `memory_brief` 2026-10-29;
+`memory_drift` 2026-10-30): all eleven tools,
 context injection, and session-end extraction were observed working
 end-to-end; the verified payload shapes are documented in
 [`ARCHITECTURE.md`](ARCHITECTURE.md).
@@ -298,13 +300,17 @@ restart.
 
 ### What the agent gets
 
-- **Ten tools**: `memory_search` / `memory_brief` / `memory_probe` /
-  `memory_related` / `memory_reason` / `memory_add` / `memory_feedback` /
-  `memory_update` / `memory_remove` / `memory_list` — the same operation
-  surface as the Hermes provider (`brief` is one of its `fact_store`
-  actions), where `memory_brief` is the one-call plugin form: a
-  token-budgeted context pack for a task — search ∪ entity probe, whole
-  facts only, with the window marker (design in `docs/brief.md`).
+- **Eleven tools**: `memory_search` / `memory_brief` / `memory_drift` /
+  `memory_probe` / `memory_related` / `memory_reason` / `memory_add` /
+  `memory_feedback` / `memory_update` / `memory_remove` / `memory_list` —
+  the same operation surface as the Hermes provider (`brief` and `drift`
+  are among its `fact_store` actions), where `memory_brief` is the one-call
+  plugin form: a token-budgeted context pack for a task — search ∪ entity
+  probe, whole facts only, with the window marker (design in
+  `docs/brief.md`); and `memory_drift` is the two-sided plan/state pack:
+  a project's plan facts (the `plan`-tagged claims) against its state since
+  the anchor, with per-claim echo markers — the agent reads both sides and
+  judges drift, the core never scores it (design in `docs/drift.md`).
 - **Skill catalog** (with `skillDirs` set — otherwise zero behavior change):
   skills are synced into the store as facts (`skill-sync` at session start),
   injected as a ranked block (trust floor at session start, top-k for the
@@ -373,6 +379,7 @@ python3 -m tiberius.cli --db PATH probe "entity"
 python3 -m tiberius.cli --db PATH related "entity"
 python3 -m tiberius.cli --db PATH reason "a" "b"
 python3 -m tiberius.cli --db PATH brief "query" [--budget N]
+python3 -m tiberius.cli --db PATH drift "project" [--since S] [--budget N] [--top N] [--support T]
 python3 -m tiberius.cli --db PATH contradict [--category C] [--threshold T] [--top N]
 python3 -m tiberius.cli --db PATH add "fact" [--category C] [--tags a,b]
 python3 -m tiberius.cli --db PATH feedback <id> helpful|unhelpful

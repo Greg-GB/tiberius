@@ -1,6 +1,6 @@
 ---
 name: tiberius-usage
-description: "Use when local memory tools are available (search / brief / probe / related / reason / add / feedback / update / remove / list). Recall before answering questions that may already be known; store only durable facts; rate recall quality after use."
+description: "Use when local memory tools are available (search / brief / drift / probe / related / reason / add / feedback / update / remove / list). Recall before answering questions that may already be known; store only durable facts; rate recall quality after use."
 ---
 
 # Using Tiberius memory effectively
@@ -18,6 +18,15 @@ projects, and tools. Nothing leaves the machine.
   subagent prompt): `brief` composes search + entity probe into one
   token-budgeted block, whole facts only, with the window marker (how many
   more matches exist) — one call instead of several.
+- **Drift** when the question is "is this project still doing what it set
+  out to do?": `drift <project>` returns the project's plan facts (the
+  `plan`-tagged claims: purpose, invariants) against the state facts since
+  the anchor (default: the oldest plan fact), with per-claim echo markers.
+  Read both sides and judge — the markers are hints, not verdicts. The
+  `unbacked` field (when present) lists plan claims with no state echo in
+  the window: stale, unbuilt, or code-level and never recorded — verify
+  before treating them as drift, and widen the window (`top`) if a claim
+  matters.
 - **Reason** across multiple entities only when the question genuinely spans
   two or more (`what touches X and Y`).
 - **Environment questions are prime recall targets** — "how do I do X here?".

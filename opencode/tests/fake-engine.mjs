@@ -128,6 +128,51 @@ switch (cmd) {
     console.log(JSON.stringify({ query, total: pool.length, entity_only: 0, count: facts.length, tokens: used, budget, facts, skills }));
     break;
   }
+  case "drift": {
+    if (process.env.TIBERUS_FAKE_FAIL === "drift") fail("drift");
+    // Emulates cli.py drift (docs/drift.md): two-sided pack — plan facts with
+    // echo markers (2001 backed, 2002 unbacked), state facts (the FACTS
+    // fixtures + created_at), split budget fill (budget//2 per side), and the
+    // unbacked supplemental (omitted when empty — the fixtures always have an
+    // unbacked claim, so it is always present here).
+    const project = rest[0] ?? "";
+    const budget = flag("--budget") ? parseInt(flag("--budget"), 10) : 300;
+    const anchor = flag("--since") ?? "2025-12-31 00:00:00";
+    const planAll = [
+      { fact_id: 2001, content: "AcmeWidget plan: crate loads happen at the dock before dawn", category: "project", trust_score: 0.9, support: { count: 1, best: 0.75, echoes: [1001] } },
+      { fact_id: 2002, content: "AcmeWidget policy: the ledger keeps status codes", category: "project", trust_score: 0.8, support: null },
+    ];
+    const stateAll = FACTS.map((f) => ({ ...f, created_at: "2026-01-01 00:00:00" }));
+    const fill = (facts, b) => {
+      const out = [];
+      let used = 0;
+      for (const f of facts) {
+        const t = Math.ceil(f.content.length / 4);
+        if (used + t > b) continue; // whole-fact drop
+        out.push(f);
+        used += t;
+      }
+      return { out, used };
+    };
+    const half = Math.floor(budget / 2);
+    const p = fill(planAll, half);
+    const s = fill(stateAll, budget - half);
+    const out = {
+      project,
+      anchor,
+      budget,
+      tokens: p.used + s.used,
+      plan: { total: planAll.length, count: p.out.length, facts: p.out },
+      state: { total: stateAll.length, count: s.out.length, facts: s.out },
+    };
+    const unbacked = planAll.filter((f) => f.support === null);
+    if (unbacked.length) {
+      out.unbacked = unbacked;
+      out.note = `${unbacked.length} of ${planAll.length} plan facts have no state echo >= 0.15 since ${anchor} — verify before treating it as drift`;
+    }
+    console.log(JSON.stringify(out));
+    break;
+  }
   case "feedback": {
     if (process.env.TIBERUS_FAKE_FAIL === "feedback") fail("feedback");
     const [fid, rating] = rest;

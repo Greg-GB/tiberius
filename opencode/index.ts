@@ -35,10 +35,10 @@
  *               skillDirs set)
  *
  * What it does:
- *   - tools: memory_search / memory_brief / memory_probe / memory_related /
- *     memory_reason / memory_add / memory_feedback / memory_update /
- *     memory_remove / memory_list (same operation surface as the Hermes
- *     provider — see skills/tiberius-usage/SKILL.md), plus, with
+ *   - tools: memory_search / memory_brief / memory_drift / memory_probe /
+ *     memory_related / memory_reason / memory_add / memory_feedback /
+ *     memory_update / memory_remove / memory_list (same operation surface as
+ *     the Hermes provider — see skills/tiberius-usage/SKILL.md), plus, with
  *     skillDirs: memory_skill_search (escape hatch past the per-turn top-k)
  *     and memory_skill_load (SKILL.md body for skills the built-in skill tool
  *     does not index — verified 2026-10-27: it rejects unindexed ids)
@@ -231,6 +231,32 @@ export function renderBrief(r: EngineResult, query: string): string {
   return lines.join("\n");
 }
 
+// memory_drift output (docs/drift.md §2): the two-sided block, not JSON — the
+// model consumes, and its size is what the budget bounds. Header: anchor +
+// window totals per side (k of N) + token estimate. Plan lines carry the echo
+// marker (backed ×N @ S) or [unbacked]; state lines carry created_at (recency
+// is meaningful on the state side). The trailing unbacked line is the
+// supplemental note — absent when the field is (the whole field is omitted
+// when empty).
+export function renderDrift(r: EngineResult, project: string): string {
+  const plan = (r.plan ?? {}) as { count: number; total: number; facts: { fact_id: number; content: string; support: { count: number; best: number } | null }[] };
+  const state = (r.state ?? {}) as { count: number; total: number; facts: { fact_id: number; content: string; created_at?: string }[] };
+  const tokens = typeof r.tokens === "number" ? r.tokens : 0;
+  const lines = [
+    `drift: ${project} (anchor ${r.anchor ?? "?"}; ${plan.count} of ${plan.total} plan, ${state.count} of ${state.total} state, ~${tokens} tokens)`,
+    "plan:",
+    ...plan.facts.map((f) =>
+      f.support
+        ? `- [${f.fact_id}] ${f.content} (backed ×${f.support.count} @ ${f.support.best})`
+        : `- [${f.fact_id}] ${f.content}  [unbacked]`),
+    "state:",
+    ...state.facts.map((f) => `- [${f.fact_id}] ${f.content}${f.created_at ? ` (${f.created_at})` : ""}`),
+  ];
+  const unbacked = (r.unbacked ?? []) as unknown[];
+  if (unbacked.length && typeof r.note === "string") lines.push(`unbacked: ${r.note}`);
+  return lines.join("\n");
+}
+
 // Skill-load signals in a session transcript (for the usage-feedback loop).
 // Two shapes, verified against @opencode/client types (SessionMessageSkill,
 // SessionMessageAssistantTool):
@@ -350,6 +376,45 @@ export default Plugin.define({
             for (const s of skills) shownSkills.add(s.fact_id);
           }
           return { content: renderBrief(r, String(input.query)) };
+        },
+      });
+      e.add({
+        name: "memory_drift",
+        description: "Two-sided plan/state pack for a project: its plan facts (purpose, invariants — the claims it set out to hold) against the state facts accumulated since the anchor, with per-claim echo markers. Use it when the question is 'is this project drifting from what it set out to do?' — read both sides and judge; the markers are hints, not verdicts. When the 'unbacked' line is present, those plan claims have no state echo in the window since the anchor: stale, unbuilt, or never recorded — verify before treating it as drift.",
+        input: {
+          type: "object",
+          properties: {
+            project: { type: "string", description: "Project name (its plan facts are the 'plan'-tagged facts that name it)" },
+            since: { type: "string", description: "State window start: ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w); default: the oldest plan fact ('since the plan was declared')" },
+            budget: { type: "integer", description: "Token budget for the block (default 300)" },
+            top: { type: "integer", description: "Candidate pool size per state-side recall (default 20)" },
+            support: { type: "number", description: "Min overlap coefficient for a state fact to count as an echo (default 0.15)" },
+          },
+          required: ["project"],
+        },
+        execute: async (input: any, context: any) => {
+          const args = ["drift", String(input.project)];
+          if (input.since) args.push("--since", String(input.since));
+          args.push("--budget", String(input.budget ?? 300));
+          if (input.top) args.push("--top", String(input.top));
+          if (typeof input.support === "number") args.push("--support", String(input.support));
+          const r: EngineResult = (await callEngine(engine, baseArgs, args, undefined, env)) ?? {};
+          if (r.error) return { content: JSON.stringify(r) };
+          // A drift IS a recall (three underlying ones), and its output is in
+          // the conversation: mark the shown facts as already-shown for this
+          // session so the per-turn injector does not re-surface them. context
+          // is absent outside a live session (e.g. unit tests) — skip.
+          const sessionID: string | undefined = context?.sessionID;
+          if (typeof sessionID === "string") {
+            let shown = injectedFacts.get(sessionID);
+            if (!shown) {
+              shown = new Set<number>();
+              injectedFacts.set(sessionID, shown);
+            }
+            for (const f of ((r.plan as { facts?: { fact_id: number }[] })?.facts ?? [])) shown.add(f.fact_id);
+            for (const f of ((r.state as { facts?: { fact_id: number }[] })?.facts ?? [])) shown.add(f.fact_id);
+          }
+          return { content: renderDrift(r, String(input.project)) };
         },
       });
       e.add({

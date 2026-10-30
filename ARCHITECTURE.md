@@ -12,6 +12,7 @@ AGENTS.md lists the hard invariants; this file explains them.
 | `store.py` | SQLite schema, `MemoryStore` (shared connection), entity extraction/resolution, `extract_statements` | stdlib only |
 | `retrieval.py` | `FactRetriever`: search / probe / related / reason / contradict | store, holographic |
 | `brief.py` | `brief()`: token-budgeted context pack — search ∪ probe, dedupe, tiered rank, budget fill; harness-free, wrapped by the CLI subcommand, the OpenCode tool, and the Hermes provider action | store, retrieval |
+| `drift.py` | `drift()`: two-sided plan/state pack — exact tag+entity plan query, recency-ranked state window, overlap-coefficient echo markers; harness-free, wrapped by the CLI subcommand, the OpenCode tool, and the Hermes provider action | store, retrieval, brief |
 | `provider.py` | Hermes `MemoryProvider` adapter (in-process) | Hermes core + all of the above |
 | `cli.py` | Harness-agnostic JSON CLI (subprocess surface for any harness) | store, retrieval |
 | `opencode/index.ts` | OpenCode V2 plugin: subprocess wrapper around `cli.py` | node, `cli.py` |
@@ -276,7 +277,9 @@ the untested assumptions):
   `memory_update` / `memory_remove` / `memory_list` — all verified;
   `memory_brief` (token-budgeted context pack, `docs/brief.md`) was added
   later — unit-verified as the CLI subcommand, the plugin tool, and the
-  provider's `fact_store(action='brief')`.
+  provider's `fact_store(action='brief')`; `memory_drift` (two-sided
+  plan/state pack, `docs/drift.md`) likewise — unit-verified the same way,
+  and runtime-verified against live OpenCode 2.0.28 (2026-10-30).
 - `context` hook: searches the last user message text and pushes top facts
   into the system prompt. Default: per-turn — every **new** user message is
   searched (per-session `lastSearched` — later model calls in the same turn

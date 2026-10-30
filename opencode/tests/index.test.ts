@@ -25,6 +25,7 @@ import tiberiusPlugin, {
   freshUserMsgs,
   messageText,
   renderBrief,
+  renderDrift,
   renderSkillBlock,
   runEngine,
   skillDescription,
@@ -185,6 +186,59 @@ test("renderBrief omits markers when the window is the whole pool", () => {
     renderBrief({ total: 1, entity_only: 0, tokens: 8, facts: [{ fact_id: 7, content: "just one" }], skills: [] } as any, "q"),
     "brief: q (1 fact, ~8 tokens)\n- [7] just one",
   );
+});
+
+test("renderDrift renders the two-sided block with echo markers and the unbacked note", () => {
+  const block = renderDrift(
+    {
+      anchor: "2026-01-01 00:00:00",
+      tokens: 48,
+      plan: {
+        total: 2,
+        count: 2,
+        facts: [
+          { fact_id: 2001, content: "AcmeWidget plan: crate loads happen at the dock before dawn", support: { count: 1, best: 0.75, echoes: [1001] } },
+          { fact_id: 2002, content: "AcmeWidget policy: the ledger keeps status codes", support: null },
+        ],
+      },
+      state: {
+        total: 2,
+        count: 2,
+        facts: [
+          { fact_id: 1001, content: "user prefers concise answers about memory work", created_at: "2026-01-01 00:00:00" },
+          { fact_id: 1002, content: "project database is local SQLite", created_at: "2026-01-02 00:00:00" },
+        ],
+      },
+      unbacked: [{ fact_id: 2002 }],
+      note: "1 of 2 plan facts have no state echo >= 0.15 since 2026-01-01 00:00:00 — verify before treating it as drift",
+    } as any,
+    "AcmeWidget",
+  );
+  const lines = block.split("\n");
+  assert.equal(lines[0], "drift: AcmeWidget (anchor 2026-01-01 00:00:00; 2 of 2 plan, 2 of 2 state, ~48 tokens)");
+  assert.equal(lines[1], "plan:");
+  assert.equal(lines[2], "- [2001] AcmeWidget plan: crate loads happen at the dock before dawn (backed ×1 @ 0.75)");
+  assert.equal(lines[3], "- [2002] AcmeWidget policy: the ledger keeps status codes  [unbacked]");
+  assert.equal(lines[4], "state:");
+  assert.equal(lines[5], "- [1001] user prefers concise answers about memory work (2026-01-01 00:00:00)");
+  assert.equal(lines[6], "- [1002] project database is local SQLite (2026-01-02 00:00:00)");
+  assert.equal(lines[7], "unbacked: 1 of 2 plan facts have no state echo >= 0.15 since 2026-01-01 00:00:00 — verify before treating it as drift");
+});
+
+test("renderDrift omits the unbacked line when the field is absent", () => {
+  const block = renderDrift(
+    {
+      anchor: "2026-01-01 00:00:00",
+      tokens: 15,
+      plan: { total: 1, count: 1, facts: [{ fact_id: 2001, content: "a plan claim", support: { count: 2, best: 0.3, echoes: [1001, 1002] } }] },
+      state: { total: 0, count: 0, facts: [] },
+    } as any,
+    "AcmeWidget",
+  );
+  const lines = block.split("\n");
+  assert.equal(lines.length, 4); // header, plan:, one plan line, state: — nothing else
+  assert.ok(!lines.some((l) => l.startsWith("unbacked:")));
+  assert.equal(lines[3], "state:");
 });
 
 test("renderSkillBlock renders '<id> — <description>' lines under a header", () => {
@@ -383,7 +437,7 @@ test("skill options unset: zero skill behavior (no skill calls, no skill tools, 
     assert.equal(ev.system.length, 1);
     assert.ok(ev.system[0].text.startsWith("Relevant stored memory"));
     assert.ok(!h.tools.some((t) => t.name.startsWith("memory_skill_")));
-    assert.equal(h.tools.length, 10);
+    assert.equal(h.tools.length, 11);
   });
 });
 
@@ -464,7 +518,7 @@ test("skill tools are registered only when skillDirs is set", async () => {
     const names = h.tools.map((t) => t.name);
     assert.ok(names.includes("memory_skill_search"));
     assert.ok(names.includes("memory_skill_load"));
-    assert.equal(h.tools.length, 12);
+    assert.equal(h.tools.length, 13);
   });
 });
 
@@ -540,6 +594,53 @@ test("memory_brief renders the window marker when the budget truncates the pool"
     assert.ok(!lines.some((l) => l.includes("[1002]"))); // whole-fact drop: 12 + 8 = 20 > 15
     assert.ok(!lines.includes("skills:")); // skills lane gets no remaining budget
   });
+});
+
+test("memory_drift calls the engine, renders the block, and marks shown facts as seen", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_drift");
+    const out = await tool.execute({ project: "AcmeWidget", since: "2026-01-01", budget: 200 }, { sessionID: "ses1" });
+    assert.deepEqual(logEntries().map((e) => e.argv), [A("drift", "AcmeWidget", "--since", "2026-01-01", "--budget", "200")]);
+    const lines = out.content.split("\n");
+    assert.equal(lines[0], "drift: AcmeWidget (anchor 2026-01-01; 2 of 2 plan, 2 of 2 state, ~47 tokens)");
+    assert.equal(lines[1], "plan:");
+    assert.ok(lines.includes("- [2001] AcmeWidget plan: crate loads happen at the dock before dawn (backed ×1 @ 0.75)"));
+    assert.ok(lines.includes("- [2002] AcmeWidget policy: the ledger keeps status codes  [unbacked]"));
+    assert.ok(lines.includes("state:"));
+    assert.ok(lines.includes("- [1001] user prefers concise answers about memory work (2026-01-01 00:00:00)"));
+    assert.ok(lines.some((l) => l.startsWith("unbacked: 1 of 2 plan facts")));
+
+    // A drift IS a recall: its shown facts are marked seen for the session, so
+    // the per-turn injector must not re-push them. The fake search for this
+    // query returns only 1001 — shown by the drift pack — so nothing injects.
+    const ev = ctxEvent("ses1", ["user memory preferences"]);
+    await h.contextHandler(ev);
+    assert.deepEqual(logEntries().map((e) => e.argv).slice(1), [A("search", "user memory preferences", "--top", "10")]);
+    assert.equal(ev.system.length, 0); // 1001 was already shown by the drift
+  });
+});
+
+test("memory_drift omits the optional flags when unset", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_drift");
+    await tool.execute({ project: "AcmeWidget" }, { sessionID: "ses1" });
+    // Default budget only — no since/top/support flags.
+    assert.deepEqual(logEntries().map((e) => e.argv), [A("drift", "AcmeWidget", "--budget", "300")]);
+  });
+});
+
+test("memory_drift surfaces the engine's structured error", async () => {
+  process.env.TIBERUS_FAKE_FAIL = "drift";
+  try {
+    await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+      const tool = h.tools.find((t) => t.name === "memory_drift");
+      const out = await tool.execute({ project: "AcmeWidget" }, { sessionID: "ses1" });
+      // The CLI's JSON error passes through un-rendered (the model reads it).
+      assert.deepEqual(JSON.parse(out.content), { error: "fake engine failure: drift" });
+    });
+  } finally {
+    delete process.env.TIBERUS_FAKE_FAIL;
+  }
 });
 
 test("session end: feedback helpful once per loaded skill (failed loads excluded, no re-send)", async () => {
