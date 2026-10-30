@@ -437,7 +437,7 @@ test("skill options unset: zero skill behavior (no skill calls, no skill tools, 
     assert.equal(ev.system.length, 1);
     assert.ok(ev.system[0].text.startsWith("Relevant stored memory"));
     assert.ok(!h.tools.some((t) => t.name.startsWith("memory_skill_")));
-    assert.equal(h.tools.length, 11);
+    assert.equal(h.tools.length, 12);
   });
 });
 
@@ -518,7 +518,7 @@ test("skill tools are registered only when skillDirs is set", async () => {
     const names = h.tools.map((t) => t.name);
     assert.ok(names.includes("memory_skill_search"));
     assert.ok(names.includes("memory_skill_load"));
-    assert.equal(h.tools.length, 13);
+    assert.equal(h.tools.length, 14);
   });
 });
 
@@ -593,6 +593,37 @@ test("memory_brief renders the window marker when the budget truncates the pool"
     assert.ok(lines.includes("- [1001] user prefers concise answers about memory work"));
     assert.ok(!lines.some((l) => l.includes("[1002]"))); // whole-fact drop: 12 + 8 = 20 > 15
     assert.ok(!lines.includes("skills:")); // skills lane gets no remaining budget
+  });
+});
+
+test("memory_show calls the engine, passes the fact id, and marks the fact seen", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_show");
+    const out = await tool.execute({ fact_id: 1001 }, { sessionID: "ses1" });
+    assert.deepEqual(logEntries().map((e) => e.argv), [A("show", "1001")]);
+    const f = JSON.parse(out.content);
+    assert.equal(f.fact_id, 1001);
+    assert.equal(f.content, "user prefers concise answers about memory work");
+    assert.ok(Array.isArray(f.entities));
+    assert.ok(!("hrr_vector" in f));
+
+    // The full fact content lands in the conversation: the shown fact is
+    // marked seen for the session, so the per-turn injector does not
+    // re-surface it. The fake search for this query returns only 1001 —
+    // shown by the show call — so nothing injects.
+    const ev = ctxEvent("ses1", ["user memory preferences"]);
+    await h.contextHandler(ev);
+    assert.deepEqual(logEntries().map((e) => e.argv).slice(1), [A("search", "user memory preferences", "--top", "10")]);
+    assert.equal(ev.system.length, 0); // 1001 was already shown by memory_show
+  });
+});
+
+test("memory_show surfaces the unknown-id error", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_show");
+    const out = await tool.execute({ fact_id: 99999 }, { sessionID: "ses1" });
+    // The CLI's JSON error passes through un-rendered (the model reads it).
+    assert.deepEqual(JSON.parse(out.content), { error: "fact_id 99999 not found" });
   });
 });
 

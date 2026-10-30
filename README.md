@@ -96,8 +96,9 @@ Files:
   `opencode/` (native OpenCode V2 plugin with per-turn context injection — on by default —
   and session-end extraction).
 - **Full operation parity**: every adapter exposes the same surface — search / probe /
-  related / reason, plus CRUD and hygiene (`add`, `update`, `remove`, `list` with
-  `--since` time filtering, `contradict`, `feedback`). Every adapter also has
+  show / related / reason, plus CRUD and hygiene (`add`, `update`, `remove`,
+  `list` with `--since` time filtering, `contradict`, `feedback`). Every
+  adapter also has
   `brief` (the token-budgeted task context pack) — a CLI subcommand, the
   OpenCode `memory_brief` tool, and the Hermes provider's
   `fact_store(action='brief')` — one shared implementation (`docs/brief.md`).
@@ -232,9 +233,10 @@ for r in sqlite3.connect('tiberius_store.db').execute(
 to the Python CLI in a local subprocess — the core never runs inside the node
 process, and nothing crosses the network. **Runtime-verified against live
 OpenCode 2.0.28** (2026-10-26; `memory_brief` 2026-10-29;
-`memory_drift` 2026-10-30): all eleven tools,
+`memory_drift` 2026-10-30): the eleven tools in existence at those dates,
 context injection, and session-end extraction were observed working
-end-to-end; the verified payload shapes are documented in
+end-to-end; `memory_show` (added later) is unit-verified, live runtime check
+pending; the verified payload shapes are documented in
 [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ### Install
@@ -300,14 +302,17 @@ restart.
 
 ### What the agent gets
 
-- **Eleven tools**: `memory_search` / `memory_brief` / `memory_drift` /
-  `memory_probe` / `memory_related` / `memory_reason` / `memory_add` /
+- **Twelve tools**: `memory_search` / `memory_brief` / `memory_drift` /
+  `memory_probe` / `memory_show` / `memory_related` / `memory_reason` /
+  `memory_add` /
   `memory_feedback` / `memory_update` / `memory_remove` / `memory_list` —
   the same operation surface as the Hermes provider (`brief` and `drift`
   are among its `fact_store` actions), where `memory_brief` is the one-call
   plugin form: a token-budgeted context pack for a task — search ∪ entity
   probe, whole facts only, with the window marker (design in
-  `docs/brief.md`); and `memory_drift` is the two-sided plan/state pack:
+  `docs/brief.md`); `memory_show` is one fact by id — full content, entities
+  with aliases, trust, and counts; read it before `update` or `remove`
+  (design in `docs/show.md`); and `memory_drift` is the two-sided plan/state pack:
   a project's plan facts (the `plan`-tagged claims) against its state since
   the anchor, with per-claim echo markers — the agent reads both sides and
   judges drift, the core never scores it (design in `docs/drift.md`).

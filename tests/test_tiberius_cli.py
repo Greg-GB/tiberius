@@ -33,6 +33,30 @@ def test_cli_search_reports_total_pool(tmp_path, capsys):
     assert "total" not in out
 
 
+def test_cli_show_roundtrip(tmp_path, capsys):
+    """show: one fact by id — full row plus entities; BLOBs never leak into CLI output."""
+    db = str(tmp_path / "s.db")
+    out = _run(capsys, "--db", db, "add", "AcmeWidget aka AW ships to the docks on Tuesdays.")
+    fid = out["fact_id"]
+    out = _run(capsys, "--db", db, "show", str(fid))
+    f = out["fact"]
+    assert f["fact_id"] == fid
+    assert f["content"] == "AcmeWidget aka AW ships to the docks on Tuesdays."
+    assert {"category", "tags", "trust_score", "retrieval_count", "created_at", "updated_at", "entities"} <= set(f)
+    ents = {e["name"].lower(): e for e in f["entities"]}
+    assert "aw" in [a.lower() for a in ents["acmewidget"]["aliases"]]
+    assert "hrr_vector" not in f  # same rule as search output
+
+
+def test_cli_show_unknown_id_is_error(tmp_path, capsys):
+    """Unknown id: {"error": ...} + exit 1 — the same contract as remove/feedback."""
+    db = str(tmp_path / "s2.db")
+    _run(capsys, "--db", db, "add", "The AcmeWidget ships to the docks on Tuesdays.")
+    rc = cli.main(["--db", db, "show", "99999"])
+    out = json.loads(capsys.readouterr().out.strip())
+    assert rc == 1 and "not found" in out["error"]
+
+
 def test_cli_probe_and_extract(tmp_path, capsys, monkeypatch):
     db = str(tmp_path / "m.db")
     _run(capsys, "--db", db, "add", "The deploy pipeline uses Docker on the build host.")

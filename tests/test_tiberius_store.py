@@ -296,3 +296,37 @@ def test_list_facts_since(tmp_path, db_path):
     with pytest.raises(ValueError):
         store.list_facts(since="banana")
     store.close()
+
+
+def test_get_fact_returns_full_row_with_entities(tmp_path, db_path):
+    """show's read path: the full row plus linked entities (name + aliases)."""
+    store = MemoryStore(db_path, hrr_dim=64)
+    fid = store.add_fact("AcmeWidget aka AW ships to the docks on Tuesdays.")
+    f = store.get_fact(fid)
+    assert f["fact_id"] == fid
+    assert f["content"] == "AcmeWidget aka AW ships to the docks on Tuesdays."
+    assert f["category"] == "general" and f["tags"] == ""
+    assert f["trust_score"] == 0.5
+    assert f["retrieval_count"] == 0 and f["helpful_count"] == 0
+    assert f["created_at"] and f["updated_at"]
+    ents = {e["name"].lower(): e for e in f["entities"]}
+    assert "acmewidget" in ents
+    assert "aw" in [a.lower() for a in ents["acmewidget"]["aliases"]]
+    store.close()
+
+
+def test_get_fact_is_not_a_recall(tmp_path, db_path):
+    """By-id lookup must not touch retrieval_count (the counter tracks recall only)."""
+    store = MemoryStore(db_path, hrr_dim=64)
+    fid = store.add_fact("The AcmeWidget ships to the docks on Tuesdays.")
+    for _ in range(3):
+        store.get_fact(fid)
+    row = store._one("SELECT retrieval_count FROM facts WHERE fact_id = ?", (fid,))
+    assert row["retrieval_count"] == 0
+    store.close()
+
+
+def test_get_fact_unknown_id_returns_none(tmp_path, db_path):
+    store = MemoryStore(db_path, hrr_dim=64)
+    assert store.get_fact(99999) is None
+    store.close()
