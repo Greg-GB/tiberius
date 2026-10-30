@@ -97,9 +97,9 @@ Files:
   and session-end extraction).
 - **Full operation parity**: every adapter exposes the same surface — search / probe /
   show / entities / drift / related / reason, plus CRUD and hygiene (`add`,
-  `update`, `remove`, `list`, `contradict`, `feedback`). `list`, `search`, and
-  `brief` take `--since` time filtering (`created_at` at or after;
-  `docs/since.md`). Every adapter also has
+  `add_batch`, `update`, `remove`, `list`, `contradict`, `feedback`). `list`,
+  `search`, and `brief` take `--since` time filtering (`created_at` at or
+  after; `docs/since.md`). Every adapter also has
   `brief` (the token-budgeted task context pack) — a CLI subcommand, the
   OpenCode `memory_brief` tool, and the Hermes provider's
   `fact_store(action='brief')` — one shared implementation (`docs/brief.md`).
@@ -304,9 +304,9 @@ restart.
 
 ### What the agent gets
 
-- **Thirteen tools**: `memory_search` / `memory_brief` / `memory_drift` /
+- **Fourteen tools**: `memory_search` / `memory_brief` / `memory_drift` /
   `memory_probe` / `memory_show` / `memory_entities` / `memory_related` /
-  `memory_reason` / `memory_add` /
+  `memory_reason` / `memory_add` / `memory_add_batch` /
   `memory_feedback` / `memory_update` / `memory_remove` / `memory_list` —
   the same operation surface as the Hermes provider (`brief` and `drift`
   are among its `fact_store` actions), where `memory_brief` is the one-call
@@ -394,7 +394,8 @@ python3 -m tiberius.cli --db PATH brief "query" [--budget N] [--since S]
 python3 -m tiberius.cli --db PATH drift "project" [--since S] [--budget N] [--top N] [--support T]
 python3 -m tiberius.cli --db PATH contradict [--category C] [--threshold T] [--top N]
 python3 -m tiberius.cli --db PATH add "fact" [--category C] [--tags a,b]
-python3 -m tiberius.cli --db PATH feedback <id> helpful|unhelpful
+echo '["fact", {"content": "fact", "category": "project"}]' | python3 -m tiberius.cli --db PATH add-batch
+python3 -m tiberius.cli --db PATH feedback <id|id,...> helpful|unhelpful
 python3 -m tiberius.cli --db PATH remove <id>
 python3 -m tiberius.cli --db PATH update <id> [--content TEXT] [--tags a,b] [--category C] [--trust-delta T]
 python3 -m tiberius.cli --db PATH list [--category C] [--min-trust T] [--since 30m|2h|7d|2w|YYYY-MM-DD] [--top N]

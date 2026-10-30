@@ -9,7 +9,8 @@ Usage (repo dir importable as package ``tiberius``, i.e. its PARENT on PYTHONPAT
   python3 -m tiberius.cli [--db PATH] reason "entity" "entity" [...]
   python3 -m tiberius.cli [--db PATH] contradict [--category C] [--threshold T] [--top N]
   python3 -m tiberius.cli [--db PATH] add "fact content" [--category C] [--tags a,b]
-  python3 -m tiberius.cli [--db PATH] feedback <fact_id> helpful|unhelpful
+  echo '["fact one", {"content": "fact two", "category": "project"}]' | python3 -m tiberius.cli [--db PATH] add-batch
+  python3 -m tiberius.cli [--db PATH] feedback <fact_id|id,id,...> helpful|unhelpful
   python3 -m tiberius.cli [--db PATH] remove <fact_id>
   python3 -m tiberius.cli [--db PATH] update <fact_id> [--content TEXT] [--tags a,b] [--category C] [--trust-delta T]
   python3 -m tiberius.cli [--db PATH] skill-sync --dir DIR [--dir DIR ...] [--prune]
@@ -258,8 +259,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("content")
     s.add_argument("--category", default="general")
     s.add_argument("--tags", default="")
-    s = sub.add_parser("feedback", help="train trust: fact_id + helpful|unhelpful")
-    s.add_argument("fact_id", type=int)
+    s = sub.add_parser("add-batch", help="store many facts from a JSON array on stdin (strings or {content, category?, tags?} objects)")
+    s = sub.add_parser("feedback", help="train trust: fact_id + helpful|unhelpful (fact_id may be a comma list: 5,6,7)")
+    s.add_argument("fact_id", help="fact id, or comma-separated ids for a batch (5 or 5,6,7)")
     s.add_argument("action", choices=["helpful", "unhelpful"])
     s = sub.add_parser("remove", help="delete a fact by id (entity links + FTS cleaned)")
     s.add_argument("fact_id", type=int)
@@ -332,8 +334,19 @@ def main(argv: list[str] | None = None) -> int:
                                "remove the older fact_id and keep this one.")
             print(json.dumps(out))
             return 0
+        elif a.cmd == "add-batch":
+            items = json.loads(sys.stdin.read())
+            if not isinstance(items, list) or not items:
+                raise ValueError("add-batch expects a non-empty JSON array on stdin")
+            print(json.dumps(store.add_facts(items)))
+            return 0
         elif a.cmd == "feedback":
-            print(json.dumps(store.record_feedback(a.fact_id, helpful=a.action == "helpful")))
+            ids = [int(x) for x in str(a.fact_id).split(",") if x.strip()]
+            if len(ids) == 1:
+                print(json.dumps(store.record_feedback(ids[0], helpful=a.action == "helpful")))
+            else:
+                results = store.record_feedbacks(ids, helpful=a.action == "helpful")
+                print(json.dumps({"applied": sum(1 for r in results if r.get("ok")), "results": results}))
             return 0
         elif a.cmd == "remove":
             if not store.remove_fact(a.fact_id):

@@ -437,7 +437,7 @@ test("skill options unset: zero skill behavior (no skill calls, no skill tools, 
     assert.equal(ev.system.length, 1);
     assert.ok(ev.system[0].text.startsWith("Relevant stored memory"));
     assert.ok(!h.tools.some((t) => t.name.startsWith("memory_skill_")));
-    assert.equal(h.tools.length, 13);
+    assert.equal(h.tools.length, 14);
   });
 });
 
@@ -518,7 +518,7 @@ test("skill tools are registered only when skillDirs is set", async () => {
     const names = h.tools.map((t) => t.name);
     assert.ok(names.includes("memory_skill_search"));
     assert.ok(names.includes("memory_skill_load"));
-    assert.equal(h.tools.length, 15);
+    assert.equal(h.tools.length, 16);
   });
 });
 
@@ -640,6 +640,32 @@ test("memory_show surfaces the unknown-id error", async () => {
     const out = await tool.execute({ fact_id: 99999 }, { sessionID: "ses1" });
     // The CLI's JSON error passes through un-rendered (the model reads it).
     assert.deepEqual(JSON.parse(out.content), { error: "fact_id 99999 not found" });
+  });
+});
+
+test("memory_add_batch sends the facts JSON on stdin and passes the result through", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_add_batch");
+    const out = await tool.execute({ facts: ["fact one", "fact two"] }, { sessionID: "ses1" });
+    // Output contract (docs/batch.md): {added, duplicates, fact_ids} — passed through un-rendered.
+    assert.deepEqual(JSON.parse(out.content), { added: 2, duplicates: 0, fact_ids: [9000, 9001] });
+    assert.deepEqual(logEntries().map((e) => e.argv), [A("add-batch")]);
+    // Empty facts is a client-side error: no engine call at all.
+    const empty = await tool.execute({ facts: [] }, { sessionID: "ses1" });
+    assert.deepEqual(JSON.parse(empty.content), { error: "facts must be a non-empty array" });
+    assert.equal(logEntries().length, 1);
+  });
+});
+
+test("memory_feedback passes a comma-joined fact_ids batch to the engine", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_feedback");
+    const out = await tool.execute({ fact_ids: [1, 2, 3], rating: "helpful" }, { sessionID: "ses1" });
+    assert.deepEqual(logEntries().map((e) => e.argv), [A("feedback", "1,2,3", "helpful")]);
+    assert.deepEqual(JSON.parse(out.content), { applied: 3, results: [1, 2, 3].map((n) => ({ fact_id: n, rating: "helpful", old_trust: 0.5, new_trust: 0.6, ok: true })) });
+    // Single fact_id stays on the original argv shape.
+    await tool.execute({ fact_id: 7, rating: "unhelpful" }, { sessionID: "ses1" });
+    assert.deepEqual(logEntries().map((e) => e.argv).slice(1), [A("feedback", "7", "unhelpful")]);
   });
 });
 

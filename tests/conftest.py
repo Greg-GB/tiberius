@@ -24,6 +24,7 @@ if str(HERMES_AGENT_REPO) not in sys.path:
 # file must be added to _HERMES_ONLY_TESTS or CI goes red — loud, by design.
 _HERMES_ONLY_TESTS = {
     "test_tiberius_auto_extract.py": "agent",
+    "test_tiberius_hermes_batch.py": "agent",
     "test_tiberius_hermes_brief.py": "agent",
     "test_tiberius_hermes_drift.py": "agent",
     "test_tiberius_hermes_entities.py": "agent",

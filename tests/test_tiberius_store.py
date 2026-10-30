@@ -366,3 +366,43 @@ def test_list_entities_caps_at_top(tmp_path, db_path):
     assert [r["name"] for r in store.list_entities(top=-5)] == \
            [r["name"] for r in store.list_entities(top=1)]  # clamped to 1, not an unlimited dump
     store.close()
+
+
+def test_add_facts_batch_happy_path_duplicates_and_per_item_paths(tmp_path):
+    """add_facts: strings + objects, dup content returns the existing id (docs/batch.md)."""
+    store = MemoryStore(str(tmp_path / "m.db"))
+    out = store.add_facts([
+        "The AcmeWidget crate line ships on Fridays.",
+        {"content": "The AcmeWidget crate line runs on SQLite.", "category": "project", "tags": "infra"},
+        "The AcmeWidget crate line ships on Fridays.",  # duplicate of item 0
+    ])
+    assert out["added"] == 2 and out["duplicates"] == 1
+    assert len(out["fact_ids"]) == 3
+    assert out["fact_ids"][0] == out["fact_ids"][2]  # UNIQUE(content) -> existing id
+    row = store.get_fact(out["fact_ids"][1])
+    assert row["category"] == "project" and row["tags"] == "infra"  # per-item add_fact path ran
+    assert [r["name"] for r in store.list_entities(top=1)] == ["AcmeWidget"]  # entity linking per item
+    store.close()
+
+
+def test_add_facts_bad_item_names_the_index_and_executes_nothing(tmp_path):
+    store = MemoryStore(str(tmp_path / "m.db"))
+    for items, frag in [([["nope"]], "facts[0]"), (["ok one", "   "], "facts[1]")]:
+        try:
+            store.add_facts(items)
+            raise AssertionError("expected ValueError")
+        except ValueError as e:
+            assert frag in str(e)
+    assert len(store.list_facts(limit=100)) == 0  # validated up front: nothing executed
+    store.close()
+
+
+def test_record_feedbacks_continue_on_error_per_item(tmp_path):
+    store = MemoryStore(str(tmp_path / "m.db"))
+    a = store.add_fact("The AcmeWidget crate line ships on Fridays.")
+    b = store.add_fact("The AcmeWidget crate line runs on SQLite.")
+    out = store.record_feedbacks([a, 99999, b], helpful=True)
+    assert [r["ok"] for r in out] == [True, False, True]
+    assert out[1]["fact_id"] == 99999 and "not found" in out[1]["error"]
+    assert out[0]["new_trust"] > out[0]["old_trust"]
+    store.close()

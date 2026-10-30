@@ -51,9 +51,17 @@ FACT_STORE_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["add", "search", "probe", "show", "entities", "brief", "drift", "related", "reason", "contradict", "update", "remove", "list"]},
+            "action": {"type": "string", "enum": ["add", "add_batch", "search", "probe", "show", "entities", "brief", "drift", "related", "reason", "contradict", "update", "remove", "list"]},
             "content": {"type": "string", "description": "Fact content (required for 'add')."},
             "query": {"type": "string", "description": "Search query (required for 'search'/'brief')."},
+            "facts": {"type": "array", "minItems": 1,
+                      "items": {"anyOf": [{"type": "string"},
+                                          {"type": "object", "properties": {
+                                               "content": {"type": "string"},
+                                               "category": {"type": "string"},
+                                               "tags": {"type": "string"}},
+                                            "required": ["content"]}]},
+                      "description": "Facts to add in one call (action 'add_batch'): strings or objects with content (plus optional category, tags). Validated up front, committed per item; a bad item errors with its index and nothing executes (docs/batch.md)."},
             "project": {"type": "string", "description": "Project name for 'drift' (its plan facts are the 'plan'-tagged facts that name it)."},
             "budget": {"type": "integer", "description": "'brief'/'drift': token budget for the pack (default: 300)."},
             "support": {"type": "number", "description": "'drift': min overlap coefficient for a state fact to count as a plan-claim echo (default: 0.15)."},
@@ -74,12 +82,15 @@ FACT_STORE_SCHEMA = {
 FACT_FEEDBACK_SCHEMA = {
     "name": "fact_feedback",
     "description": ("Rate a fact after using it. Mark 'helpful' if accurate, 'unhelpful' if outdated. "
-                    "This trains the memory — good facts rise, bad facts sink."),
+                    "This trains the memory — good facts rise, bad facts sink. "
+                    "Pass fact_ids (list) to rate several facts in one call; each bad id is reported, not raised."),
     "parameters": {
         "type": "object",
         "properties": {"action": {"type": "string", "enum": ["helpful", "unhelpful"]},
-                       "fact_id": {"type": "integer", "description": "The fact ID to rate."}},
-        "required": ["action", "fact_id"],
+                       "fact_id": {"type": "integer", "description": "The fact ID to rate."},
+                       "fact_ids": {"type": "array", "items": {"type": "integer"},
+                                    "description": "Fact IDs to rate in one call (same action). Mutually exclusive with fact_id."}},
+        "required": ["action"],
     },
 }
 
@@ -459,9 +470,37 @@ class TiberiusMemoryProvider(MemoryProvider):
             "remove": lambda self, a: json.dumps({"removed": self._store.remove_fact(int(a["fact_id"]))}),
             "list": lambda self, a: _results(self._store.list_facts(
                 category=a.get("category"), min_trust=float(a.get("min_trust", 0.0)), limit=_limit(a), since=a.get("since")), key="facts"),
+            "add_batch": lambda self, a: self._add_batch(a),
         }),
-        "fact_feedback": lambda self, a: json.dumps(self._store.record_feedback(int(a["fact_id"]), helpful=a["action"] == "helpful")),
+        "fact_feedback": lambda self, a: self._feedback(a),
     }
+
+    def _add_batch(self, a: dict) -> str:
+        if not self._store:
+            return tool_error("store unavailable")
+        facts = a.get("facts")
+        if not isinstance(facts, list) or not facts:
+            return tool_error("add_batch requires a non-empty 'facts' list (strings or {content, category?, tags?} objects)")
+        try:
+            return json.dumps(self._store.add_facts(facts))
+        except ValueError as e:
+            return tool_error(str(e))
+
+    def _feedback(self, a: dict) -> str:
+        """Single or batch feedback; the single-id path is byte-identical to the former inline lambda."""
+        if not self._store:
+            return tool_error("store unavailable")
+        fid, fids = a.get("fact_id"), a.get("fact_ids")
+        if fids:
+            if fid is not None:
+                return tool_error("provide fact_id OR fact_ids, not both")
+            if not isinstance(fids, list) or not fids:
+                return tool_error("fact_ids must be a non-empty list of integers")
+            results = self._store.record_feedbacks(fids, helpful=a["action"] == "helpful")
+            return json.dumps({"applied": sum(1 for r in results if r.get("ok")), "results": results})
+        if fid is None:
+            return tool_error("provide fact_id or a non-empty fact_ids list")
+        return json.dumps(self._store.record_feedback(int(fid), helpful=a["action"] == "helpful"))
 
     def _auto_extract_facts(self, messages: list) -> None:
         # Compaction handoff summaries arrive as role="user" and match the decision patterns; never store the

@@ -176,7 +176,24 @@ switch (cmd) {
   case "feedback": {
     if (process.env.TIBERUS_FAKE_FAIL === "feedback") fail("feedback");
     const [fid, rating] = rest;
-    console.log(JSON.stringify({ fact_id: Number(fid), rating, trust_delta: rating === "helpful" ? 0.1 : -0.1 }));
+    const ids = String(fid).split(",").filter(Boolean);
+    if (ids.length === 1) {
+      console.log(JSON.stringify({ fact_id: Number(ids[0]), rating, trust_delta: rating === "helpful" ? 0.1 : -0.1 }));
+    } else {
+      // Emulates cli.py feedback batch (docs/batch.md): same rating per id, per-item results.
+      console.log(JSON.stringify({ applied: ids.length, results: ids.map((id) => ({ fact_id: Number(id), rating, old_trust: 0.5, new_trust: rating === "helpful" ? 0.6 : 0.4, ok: true })) }));
+    }
+    break;
+  }
+  case "add-batch": {
+    if (process.env.TIBERUS_FAKE_FAIL === "add-batch") fail("add-batch");
+    // Emulates cli.py add-batch (docs/batch.md): a JSON array on stdin →
+    // {"added", "duplicates", "fact_ids"}; fake fact ids are deterministic.
+    let input = "";
+    process.stdin.setEncoding("utf8");
+    for await (const chunk of process.stdin) input += chunk;
+    const items = input.trim() ? JSON.parse(input) : [];
+    console.log(JSON.stringify({ added: items.length, duplicates: 0, fact_ids: items.map((_, i) => 9000 + i) }));
     break;
   }
   case "show": {
