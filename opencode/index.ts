@@ -474,10 +474,15 @@ export default Plugin.define({
       });
       e.add({
         name: "memory_feedback",
-        description: "Rate a recalled fact after using it: helpful if it was accurate, unhelpful if outdated. Trains trust scores — call this after acting on a fact.",
-        input: { type: "object", properties: { fact_id: { type: "integer", description: "The id returned by a recall tool" }, rating: { type: "string", enum: ["helpful", "unhelpful"] } }, required: ["fact_id", "rating"] },
+        description: "Rate a recalled fact after using it: helpful if it was accurate, unhelpful if outdated. Trains trust scores — call this after acting on a fact. Pass fact_ids (list) to rate several in one call; each bad id is reported, not raised.",
+        input: { type: "object", properties: { fact_id: { type: "integer", description: "The id returned by a recall tool" }, fact_ids: { type: "array", items: { type: "integer" }, description: "Fact ids to rate in one call (same rating). Mutually exclusive with fact_id." }, rating: { type: "string", enum: ["helpful", "unhelpful"] } }, required: ["rating"] },
         execute: async (input: any) => {
-          const r = await callEngine(engine, baseArgs, ["feedback", String(input.fact_id), String(input.rating)], undefined, env);
+          const hasSingle = input.fact_id != null;
+          const hasBatch = Array.isArray(input.fact_ids) && input.fact_ids.length;
+          if (hasSingle && hasBatch) return { content: JSON.stringify({ error: "provide fact_id OR fact_ids, not both" }) };
+          if (!hasSingle && !hasBatch) return { content: JSON.stringify({ error: "provide fact_id or a non-empty fact_ids list" }) };
+          const id = hasBatch ? input.fact_ids.map((n: any) => String(n)).join(",") : String(input.fact_id);
+          const r = await callEngine(engine, baseArgs, ["feedback", id, String(input.rating)], undefined, env);
           return { content: JSON.stringify(r ?? {}) };
         },
       });
@@ -490,6 +495,17 @@ export default Plugin.define({
           if (input.category) args.push("--category", String(input.category));
           if (input.tags) args.push("--tags", String(input.tags));
           const r = await callEngine(engine, baseArgs, args, undefined, env);
+          return { content: JSON.stringify(r ?? {}) };
+        },
+      });
+      e.add({
+        name: "memory_add_batch",
+        description: "Store several durable facts in one call (a session summary, a set of findings). One statement per item, present tense, no fluff. Returns {added, duplicates, fact_ids}.",
+        input: { type: "object", properties: { facts: { type: "array", items: { type: "string" }, description: "Facts to store in one call (one statement each)" } }, required: ["facts"] },
+        execute: async (input: any) => {
+          const facts = Array.isArray(input.facts) ? input.facts : [];
+          if (!facts.length) return { content: JSON.stringify({ error: "facts must be a non-empty array" }) };
+          const r = await callEngine(engine, baseArgs, ["add-batch"], JSON.stringify(facts), env);
           return { content: JSON.stringify(r ?? {}) };
         },
       });

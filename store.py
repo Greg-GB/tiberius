@@ -236,6 +236,39 @@ class MemoryStore:
             self._compute_hrr_vector(fact_id, content)
             return fact_id
 
+    def add_facts(self, items: list) -> dict:
+        """Batch add: a list of content strings or {content, category?, tags?} objects.
+        Validates every item first, then reuses add_fact per item (entity linking + HRR
+        rebuild included), committing per item in order. A bad item (wrong type, empty
+        content) raises ValueError naming the index and nothing executes. Duplicate
+        content — already in the store or repeated within the batch (UNIQUE) — returns
+        the existing fact_id, counted in 'duplicates' and still listed in 'fact_ids'.
+        Returns {"added", "duplicates", "fact_ids"}."""
+        prepared: list[tuple[str, str, str]] = []
+        for i, item in enumerate(items):
+            if isinstance(item, str):
+                prepared.append((item, "general", ""))
+            elif isinstance(item, dict):
+                prepared.append((item.get("content") or "", item.get("category", "general"), item.get("tags", "")))
+            else:
+                raise ValueError(f"bad facts[{i}]: expected a string or an object with content")
+        for i, (content, _category, _tags) in enumerate(prepared):
+            if not content.strip():
+                raise ValueError(f"bad facts[{i}]: content must not be empty")
+        existing: set[int] = set()
+        for content in {c for c, _c, _t in prepared}:
+            row = self._one("SELECT fact_id FROM facts WHERE content = ?", (content,))
+            if row is not None:
+                existing.add(row["fact_id"])
+        fact_ids: list[int] = []
+        dup = 0
+        for content, category, tags in prepared:
+            fid = self.add_fact(content, category=category, tags=tags)
+            if fid in fact_ids or fid in existing:
+                dup += 1
+            fact_ids.append(fid)
+        return {"added": len(fact_ids) - dup, "duplicates": dup, "fact_ids": fact_ids}
+
     def update_fact(self, fact_id: int, content: str | None = None, trust_delta: float | None = None,
                     tags: str | None = None, category: str | None = None) -> bool:
         """Partially update a fact (trust clamped to [0, 1]). Returns True if the row existed."""
@@ -340,6 +373,21 @@ class MemoryStore:
             self._write("UPDATE facts SET trust_score = ?, helpful_count = helpful_count + ?, "
                         "updated_at = CURRENT_TIMESTAMP WHERE fact_id = ?", (new_trust, increment, fact_id))
             return {"fact_id": fact_id, "old_trust": old_trust, "new_trust": new_trust, "helpful_count": row["helpful_count"] + increment}
+
+    def record_feedbacks(self, fact_ids: list, helpful: bool) -> list:
+        """Apply the same feedback to each fact_id; per-item continue-on-error (an unknown id
+        is reported, not raised). Returns the per-item record_feedback outputs with "ok"
+        added, bad ids as {"fact_id", "ok": False, "error"} (docs/batch.md)."""
+        results: list[dict] = []
+        for fid in fact_ids:
+            fid = int(fid)
+            try:
+                out = self.record_feedback(fid, helpful=helpful)
+                out["ok"] = True
+                results.append(out)
+            except KeyError as e:
+                results.append({"fact_id": fid, "ok": False, "error": str(e.args[0]) if e.args else f"fact_id {fid} not found"})
+        return results
 
     def _extract_entities(self, text: str, aka_spans: tuple = ()) -> list[str]:
         """Regex entity candidates, deduplicated case-insensitively in first-seen order.

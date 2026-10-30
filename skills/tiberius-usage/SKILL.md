@@ -1,6 +1,6 @@
 ---
 name: tiberius-usage
-description: "Use when local memory tools are available (search / brief / drift / probe / show / entities / related / reason / add / feedback / update / remove / list). Recall before answering questions that may already be known; store only durable facts; rate recall quality after use."
+description: "Use when local memory tools are available (search / brief / drift / probe / show / entities / related / reason / add / add_batch / feedback / update / remove / list). Recall before answering questions that may already be known; store only durable facts; rate recall quality after use."
 ---
 
 # Using Tiberius memory effectively
@@ -89,7 +89,10 @@ projects, and tools. Nothing leaves the machine.
   a duplicate — `update` keeps the id, entity links, and retrieval history.
   `remove` only for facts that are wrong or obsolete. `add` reports
   `possible_duplicates` (near-identical prior facts) — if you agree one is a
-  duplicate, `remove` the older.
+  duplicate, `remove` the older. For several facts at once (a session summary,
+  a set of findings) use `add_batch` (one statement per item; no per-item dup
+  report — use `add` when the dup check matters). `feedback` takes `fact_ids`
+  (list) to rate several in one call.
 
 ## Feedback — train the store
 

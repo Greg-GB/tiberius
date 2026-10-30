@@ -237,15 +237,17 @@ user text into candidate facts — one match per category:
   managed-mode refusal, atomic replace) — never `yaml.dump` the file
   directly. Normalizes a concrete own-profile db path back to the
   `$HERMES_HOME/...` placeholder so config stays portable.
-- Tools: `fact_store` (add/search/probe/show/entities/related/reason/contradict/update/
-  remove/list — the full surface) and `fact_feedback`. `handle_tool_call`
+- Tools: `fact_store` (add/add_batch/search/probe/show/entities/related/reason/contradict/update/
+  remove/list — the full surface) and `fact_feedback` (single `fact_id` or
+  batch `fact_ids`). `handle_tool_call`
   converts `KeyError` → 'missing argument' errors and any exception into
   `tool_error` (the agent sees a structured error, never a crash).
 
 **CLI (`cli.py`).** The subprocess surface. DB resolution: `--db` >
 `$TIBERIUS_DB` > `~/.tiberius/memory.db`. Commands: search/probe/show/entities/related/
-reason/contradict/add/feedback/remove/update/list/extract. Contract: **JSON on
-stdout, exit 0**; errors (unknown fact_id, empty add content, bare `update`
+reason/contradict/add/add-batch/feedback/remove/update/list/extract. Contract: **JSON on
+stdout, exit 0**; errors (unknown fact_id, empty add content, bad `add-batch` item
+(indexed), bare `update`
 with no fields, bad `--since`, sqlite-level failures) are `{"error": ...}` +
 exit 1 — no tracebacks (callers parse stdout as JSON unconditionally). `list`,
 `search`, and `brief` accept `--since` (ISO date/datetime UTC or relative

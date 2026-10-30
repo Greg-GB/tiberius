@@ -245,3 +245,40 @@ def test_cli_search_since_invalid_is_json_error(tmp_path, capsys):
     _run(capsys, "--db", db, "add", "The widget factory shipped batch 0.")
     out = _run(capsys, "--db", db, "search", "widget factory", "--since", "banana")
     assert "error" in out and "banana" in out["error"]
+
+
+def test_cli_add_batch_reads_json_array_from_stdin(tmp_path, capsys, monkeypatch):
+    """add-batch: JSON array on stdin (strings or objects) -> {added, duplicates, fact_ids}."""
+    import io
+    import sys
+   
+    db = str(tmp_path / "c.db")
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps([
+        "The widget factory ships batch 0 to the docks.",
+        {"content": "The widget factory keeps its ledger in SQLite.", "category": "project"},
+    ])))
+    out = _run(capsys, "--db", db, "add-batch")
+    assert out["added"] == 2 and out["duplicates"] == 0 and len(out["fact_ids"]) == 2
+    ids = set(out["fact_ids"])
+    out = _run(capsys, "--db", db, "search", "widget factory", "--top", "10")
+    assert {r["fact_id"] for r in out["results"]} == ids
+
+
+def test_cli_add_batch_empty_array_is_json_error(tmp_path, capsys, monkeypatch):
+    import io
+    import sys
+    db = str(tmp_path / "c.db")
+    monkeypatch.setattr(sys, "stdin", io.StringIO("[]"))
+    out = _run(capsys, "--db", db, "add-batch")
+    assert "error" in out and "non-empty" in out["error"]
+
+
+def test_cli_feedback_comma_ids_batches_and_single_id_unchanged(tmp_path, capsys):
+    """feedback 5,6,7 -> batch shape; feedback 5 -> today's exact single shape."""
+    db = str(tmp_path / "c.db")
+    a = _run(capsys, "--db", db, "add", "The widget factory ships batch 0 to the docks.")["fact_id"]
+    b = _run(capsys, "--db", db, "add", "The widget factory keeps its ledger in SQLite.")["fact_id"]
+    out = _run(capsys, "--db", db, "feedback", f"{a},{b}", "helpful")
+    assert out["applied"] == 2 and all(r["ok"] for r in out["results"])
+    out = _run(capsys, "--db", db, "feedback", str(a), "helpful")
+    assert out["fact_id"] == a and "results" not in out  # single-id path byte-identical
