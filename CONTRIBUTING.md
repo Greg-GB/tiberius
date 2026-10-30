@@ -73,6 +73,21 @@ commits — this repo has no `Co-authored-by:` trailer convention.
   the lockfile: the top-level `version` and the `packages."."` entry). The
   release workflow only guards tag ↔ `pyproject.toml` — the rest are on you
   at bump time.
+- A release PR is **not** version-bump-only. In the same commit it also
+  lands:
+  - the feature design doc's `Status:` line, flipped from `unreleased` to
+    `shipped — vX.Y.Z (YYYY-MM-DD)`;
+  - the README refresh: tool count and tool lists, the runtime-verified
+    line (with the date it was verified live), a CLI example line for any
+    new subcommand, and the "Full operation parity" surface list;
+  - the `ARCHITECTURE.md` refresh: provider action list, CLI command list,
+    runtime-verification clause;
+  - the `skills/tiberius-usage/SKILL.md` refresh: description and a usage
+    bullet for any new tool.
+
+  Doc staleness is not CI-catchable — this checklist is the gate. v0.6.1
+  (#40) was a version-bump-only release and all four items above had to be
+  backfilled in a post-release docs PR (#41).
 
 ## Adding a new harness
 

@@ -35,6 +35,12 @@ the rules below). The invariants that actually matter:
    `.db`/`.sqlite` files), personal paths, identities, and live memory-store
    content. Scan the diff for small changes; scan the full history before any
    visibility change (e.g. private → public). When in doubt, do not push.
+8. **Release-time docs refresh.** A release PR is not version-bump-only: in
+   the same commit the feature design doc's `Status:` line flips to
+   `shipped`, and the README / ARCHITECTURE / skill refreshes land (tool
+   counts, runtime-verified lines, CLI example block, parity line, SKILL
+   description and usage bullet) — the checklist is in CONTRIBUTING.md
+   ("Branches and releases").
 
 Run the core suite and the eval before declaring any retrieval-adjacent
 change done.
