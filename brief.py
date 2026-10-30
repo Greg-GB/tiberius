@@ -16,7 +16,7 @@ import re
 import sqlite3
 
 from .retrieval import FactRetriever
-from .store import MemoryStore
+from .store import MemoryStore, _parse_since
 
 
 def _named_entities(text: str, conn: sqlite3.Connection) -> list[str]:
@@ -63,6 +63,7 @@ def _fill(facts: list[dict], budget: int) -> tuple[list[dict], int]:
 def brief(query: str, ret: FactRetriever, store: MemoryStore, *,
           budget: int = 300, floor: float = 0.10, top: int = 20,
           category: str | None = None, min_trust: float = 0.3,
+          since: str | None = None,
           skills: int = 2) -> dict:
     """Token-budgeted context pack for a query: search ∪ probe → dedupe →
     floor → tiered rank → budget fill → optional skill lane.
@@ -71,17 +72,27 @@ def brief(query: str, ret: FactRetriever, store: MemoryStore, *,
     score is on a different scale, so it bypasses the floor and ranks as its
     own tier). 'total' is the query-match pool via match_count() — the FTS
     pool, no rerank, no recording — so a rendered block can state it is a
-    window, not the whole (same marker as the prefetch counter)."""
-    pool = ret.search(query, category=category, min_trust=min_trust, limit=top)
-    total = ret.match_count(query, category=category, min_trust=min_trust)
+    window, not the whole (same marker as the prefetch counter). Both take
+    the same since window (created_at at or after), so the marker describes
+    the window, not the whole store."""
+    pool = ret.search(query, category=category, min_trust=min_trust, limit=top, since=since)
+    total = ret.match_count(query, category=category, min_trust=min_trust, since=since)
     pool_ids = {f["fact_id"] for f in pool}
 
     with store._lock:  # shared-connection rule: the entities scan touches the connection directly
         entities = _named_entities(query, store._conn)
+    since_cut = _parse_since(since) if since is not None else None
     entity_only: list[dict] = []
     seen_entity: set[int] = set()
     for entity in entities:
         for f in ret.probe(entity, category=category, limit=top):
+            if since_cut is not None and (f.get("created_at") or "") < since_cut:
+                # The window applies to the probe tier too — otherwise a stale
+                # entity-linked fact re-enters the pack search left it out.
+                # ponytail: post-filter after probe's top-N pick — a windowed brief
+                # can under-fill the entity tier when the newest linked facts rank
+                # past top-N; widen top if it shows.
+                continue
             if f["fact_id"] not in pool_ids and f["fact_id"] not in seen_entity:
                 seen_entity.add(f["fact_id"])
                 entity_only.append(f)

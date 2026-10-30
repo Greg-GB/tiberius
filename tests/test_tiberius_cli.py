@@ -221,3 +221,27 @@ def test_cli_list(tmp_path, capsys):
     out = _run(capsys, "--db", db, "list", "--top", "5")
     assert out["results"][0]["fact_id"] == fid
     assert "hrr_vector" not in out["results"][0]  # BLOBs never leak into CLI output
+
+
+def test_cli_search_since_windows_results_and_total(tmp_path, capsys):
+    """search --since: windowed results AND windowed total (the 'of N' marker)."""
+    from hermes_plugin_tiberius.store import MemoryStore
+    db = str(tmp_path / "c.db")
+    first = _run(capsys, "--db", db, "add", "The widget factory shipped batch 0 to the docks.")
+    _run(capsys, "--db", db, "add", "The widget factory shipped batch 1 to the docks.")
+    _run(capsys, "--db", db, "add", "The widget factory shipped batch 2 to the docks.")
+    store = MemoryStore(db_path=db)
+    store._conn.execute("UPDATE facts SET created_at = '2026-01-01 00:00:00' WHERE fact_id = ?", (first["fact_id"],))
+    store.close()
+    out = _run(capsys, "--db", db, "search", "widget factory", "--top", "10", "--since", "24h")
+    assert out["count"] == 2 and out["total"] == 2
+    out = _run(capsys, "--db", db, "search", "widget factory", "--top", "10")
+    assert out["count"] == 3 and out["total"] == 3
+
+
+def test_cli_search_since_invalid_is_json_error(tmp_path, capsys):
+    """bad --since value: JSON error on stdout, not a traceback."""
+    db = str(tmp_path / "c.db")
+    _run(capsys, "--db", db, "add", "The widget factory shipped batch 0.")
+    out = _run(capsys, "--db", db, "search", "widget factory", "--since", "banana")
+    assert "error" in out and "banana" in out["error"]

@@ -64,7 +64,7 @@ FACT_STORE_SCHEMA = {
             "tags": {"type": "string", "description": "Comma-separated tags."},
             "trust_delta": {"type": "number", "description": "Trust adjustment for 'update'."},
             "min_trust": {"type": "number", "description": "Minimum trust filter (default: 0.3)."},
-            "since": {"type": "string", "description": "'list': only facts created at or after. 'drift': the state-window anchor. Both: ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w); 'drift' defaults to the oldest plan fact."},
+            "since": {"type": "string", "description": "'list'/'search'/'brief': only facts created at or after the cutoff. 'drift': the state-window anchor. ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w); 'drift' defaults to the oldest plan fact."},
             "limit": {"type": "integer", "description": "Max results (default: 10)."},
         },
         "required": ["action"],
@@ -435,14 +435,16 @@ class TiberiusMemoryProvider(MemoryProvider):
         "fact_store": _tool_handler({
             "add": lambda self, a: self._add(a),
             "search": lambda self, a: _results(self._retriever.search(
-                a["query"], category=a.get("category"), min_trust=float(a.get("min_trust", self._min_trust)), limit=_limit(a))),
+                a["query"], category=a.get("category"), min_trust=float(a.get("min_trust", self._min_trust)),
+                limit=_limit(a), since=a.get("since"))),
             "probe": lambda self, a: self._entity_query("probe", a),
             "show": lambda self, a: self._show(a),
             "entities": lambda self, a: self._entities(a),
             "brief": lambda self, a: json.dumps(brief(
                 a["query"], self._retriever, self._store,
                 budget=max(1, int(a.get("budget", 300))),
-                category=a.get("category"), min_trust=float(a.get("min_trust", self._min_trust)))),
+                category=a.get("category"), min_trust=float(a.get("min_trust", self._min_trust)),
+                since=a.get("since"))),
             "drift": lambda self, a: json.dumps(drift(
                 a["project"], self._retriever, self._store,
                 since=a.get("since"), budget=max(1, int(a.get("budget", 300))),

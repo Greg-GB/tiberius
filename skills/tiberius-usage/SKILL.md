@@ -38,7 +38,8 @@ projects, and tools. Nothing leaves the machine.
   carry a `(5 of N match — …)` header, more stored facts match the same query —
   search it before answering definitively.
 - **What was just recorded?** `list` with `since` (`24h`, `7d`, or an ISO
-  date) — recent facts by time, not by keyword.
+  date) — recent facts by time, not by keyword. `search` and `brief` take the
+  same `since` window (facts created at or after).
 - **Conflicting recall:** if recalled facts disagree about the same thing,
   don't silently pick the higher-ranked one — ask which is current, then
   `update` or `remove` the stale one. A surfaced contradiction is cheaper
