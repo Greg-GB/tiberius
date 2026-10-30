@@ -233,8 +233,9 @@ for r in sqlite3.connect('tiberius_store.db').execute(
 to the Python CLI in a local subprocess — the core never runs inside the node
 process, and nothing crosses the network. **Runtime-verified against live
 OpenCode 2.0.28** (2026-10-26; `memory_brief` 2026-10-29;
-`memory_drift` / `memory_show` 2026-10-30): the twelve tools, context
-injection, and session-end extraction were observed working end-to-end; the
+`memory_drift` / `memory_show` / `memory_entities` 2026-10-30): the
+thirteen tools, context injection, and session-end extraction were observed
+working end-to-end; the
 verified payload shapes are documented in
 [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
@@ -301,9 +302,9 @@ restart.
 
 ### What the agent gets
 
-- **Twelve tools**: `memory_search` / `memory_brief` / `memory_drift` /
-  `memory_probe` / `memory_show` / `memory_related` / `memory_reason` /
-  `memory_add` /
+- **Thirteen tools**: `memory_search` / `memory_brief` / `memory_drift` /
+  `memory_probe` / `memory_show` / `memory_entities` / `memory_related` /
+  `memory_reason` / `memory_add` /
   `memory_feedback` / `memory_update` / `memory_remove` / `memory_list` —
   the same operation surface as the Hermes provider (`brief` and `drift`
   are among its `fact_store` actions), where `memory_brief` is the one-call
@@ -311,7 +312,10 @@ restart.
   probe, whole facts only, with the window marker (design in
   `docs/brief.md`); `memory_show` is one fact by id — full content, entities
   with aliases, trust, and counts; read it before `update` or `remove`
-  (design in `docs/show.md`); and `memory_drift` is the two-sided plan/state pack:
+  (design in `docs/show.md`); `memory_entities` is the entity list —
+  canonical names with linked-fact counts and aliases, so the entity
+  actions' name inputs are known rather than guessed (design in
+  `docs/entities.md`); and `memory_drift` is the two-sided plan/state pack:
   a project's plan facts (the `plan`-tagged claims) against its state since
   the anchor, with per-claim echo markers — the agent reads both sides and
   judges drift, the core never scores it (design in `docs/drift.md`).

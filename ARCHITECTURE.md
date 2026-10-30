@@ -237,13 +237,13 @@ user text into candidate facts — one match per category:
   managed-mode refusal, atomic replace) — never `yaml.dump` the file
   directly. Normalizes a concrete own-profile db path back to the
   `$HERMES_HOME/...` placeholder so config stays portable.
-- Tools: `fact_store` (add/search/probe/show/related/reason/contradict/update/
+- Tools: `fact_store` (add/search/probe/show/entities/related/reason/contradict/update/
   remove/list — the full surface) and `fact_feedback`. `handle_tool_call`
   converts `KeyError` → 'missing argument' errors and any exception into
   `tool_error` (the agent sees a structured error, never a crash).
 
 **CLI (`cli.py`).** The subprocess surface. DB resolution: `--db` >
-`$TIBERIUS_DB` > `~/.tiberius/memory.db`. Commands: search/probe/show/related/
+`$TIBERIUS_DB` > `~/.tiberius/memory.db`. Commands: search/probe/show/entities/related/
 reason/contradict/add/feedback/remove/update/list/extract. Contract: **JSON on
 stdout, exit 0**; errors (unknown fact_id, empty add content, bare `update`
 with no fields, bad `--since`, sqlite-level failures) are `{"error": ...}` +
@@ -282,7 +282,9 @@ the untested assumptions):
   and runtime-verified against live OpenCode 2.0.28 (2026-10-30);
   `memory_show` (one fact by id, `docs/show.md`) likewise — unit-verified
   the same way, and runtime-verified against live OpenCode 2.0.28
-  (2026-10-30).
+  (2026-10-30); `memory_entities` (entity list, `docs/entities.md`)
+  likewise — unit-verified the same way, and runtime-verified against live
+  OpenCode 2.0.28 (2026-10-30).
 - `context` hook: searches the last user message text and pushes top facts
   into the system prompt. Default: per-turn — every **new** user message is
   searched (per-session `lastSearched` — later model calls in the same turn
