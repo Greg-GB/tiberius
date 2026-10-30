@@ -214,7 +214,7 @@ class FactRetriever:
             hop_ids = {row[0] for row in self.store._conn.execute(
                 f"SELECT DISTINCT fe2.fact_id FROM fact_entities fe1 "
                 f"JOIN fact_entities fe2 ON fe2.entity_id = fe1.entity_id AND fe2.fact_id != fe1.fact_id "
-                f"WHERE fe1.fact_id IN ({qmarks})", sorted(own_ids))}
+                f"WHERE fe1.fact_id IN ({qmarks})", sorted(own_ids))} - own_ids  # own facts come from `own`; without this subtraction every own fact of a multi-fact entity also lands in hop (sharing the queried entity with its siblings) and is returned twice
             if category:  # hop set bypasses the category filter above
                 hop_ids = {fid for fid in hop_ids if self.store._conn.execute(
                     "SELECT 1 FROM facts WHERE fact_id = ? AND category = ?", (fid, category)).fetchone()}
