@@ -36,7 +36,7 @@
  *
  * What it does:
  *   - tools: memory_search / memory_brief / memory_drift / memory_probe /
- *     memory_related / memory_reason / memory_add / memory_feedback /
+ *     memory_show / memory_related / memory_reason / memory_add / memory_feedback /
  *     memory_update / memory_remove / memory_list (same operation surface as
  *     the Hermes provider — see skills/tiberius-usage/SKILL.md), plus, with
  *     skillDirs: memory_skill_search (escape hatch past the per-turn top-k)
@@ -424,6 +424,15 @@ export default Plugin.define({
         execute: async (input: any) => {
           const r = await callEngine(engine, baseArgs, ["probe", String(input.entity)], undefined, env);
           return { content: JSON.stringify((r?.results ?? []).map((f) => ({ id: f.fact_id, content: f.content, category: f.category }))) };
+        },
+      });
+      e.add({
+        name: "memory_show",
+        description: "Read one stored fact by id: full content, entities, trust, and counts. Use before memory_update or memory_remove.",
+        input: { type: "object", properties: { fact_id: { type: "integer", description: "The id returned by a recall tool" } }, required: ["fact_id"] },
+        execute: async (input: any) => {
+          const r = await callEngine(engine, baseArgs, ["show", String(input.fact_id)], undefined, env);
+          return { content: JSON.stringify(r?.fact ?? { error: r?.error ?? `fact_id ${input.fact_id} not found` }) };
         },
       });
       e.add({

@@ -239,6 +239,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--support", type=float, default=0.15, help="min overlap coefficient for a state echo to count (default 0.15)")
     s = sub.add_parser("probe", help="all facts linked to one entity")
     s.add_argument("entity")
+    s = sub.add_parser("show", help="read one fact by id (content, entities, trust, counts)")
+    s.add_argument("fact_id", type=int)
     s = sub.add_parser("related", help="one hop: facts sharing any of the entity's entities")
     s.add_argument("entity")
     s = sub.add_parser("reason", help="compositional: facts linked to ALL entities")
@@ -303,6 +305,13 @@ def main(argv: list[str] | None = None) -> int:
             total = ret.match_count(a.query, category=a.category, min_trust=a.min_trust)
         elif a.cmd == "probe":
             rows = ret.probe(a.entity, limit=10)
+        elif a.cmd == "show":
+            fact = store.get_fact(a.fact_id)
+            if fact is None:
+                print(json.dumps({"error": f"fact_id {a.fact_id} not found"}))  # same contract as remove/feedback
+                return 1
+            print(json.dumps({"fact": fact}))
+            return 0
         elif a.cmd == "related":
             rows = ret.related(a.entity, limit=10)
         elif a.cmd == "reason":

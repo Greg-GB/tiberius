@@ -51,7 +51,7 @@ FACT_STORE_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["add", "search", "probe", "brief", "drift", "related", "reason", "contradict", "update", "remove", "list"]},
+            "action": {"type": "string", "enum": ["add", "search", "probe", "show", "brief", "drift", "related", "reason", "contradict", "update", "remove", "list"]},
             "content": {"type": "string", "description": "Fact content (required for 'add')."},
             "query": {"type": "string", "description": "Search query (required for 'search'/'brief')."},
             "project": {"type": "string", "description": "Project name for 'drift' (its plan facts are the 'plan'-tagged facts that name it)."},
@@ -59,7 +59,7 @@ FACT_STORE_SCHEMA = {
             "support": {"type": "number", "description": "'drift': min overlap coefficient for a state fact to count as a plan-claim echo (default: 0.15)."},
             "entity": {"type": "string", "description": "Entity name for 'probe'/'related'."},
             "entities": {"type": "array", "items": {"type": "string"}, "description": "Entity names for 'reason'."},
-            "fact_id": {"type": "integer", "description": "Fact ID for 'update'/'remove'."},
+            "fact_id": {"type": "integer", "description": "Fact ID for 'show'/'update'/'remove'."},
             "category": {"type": "string", "enum": ["user_pref", "project", "tool", "general"]},
             "tags": {"type": "string", "description": "Comma-separated tags."},
             "trust_delta": {"type": "number", "description": "Trust adjustment for 'update'."},
@@ -411,12 +411,25 @@ class TiberiusMemoryProvider(MemoryProvider):
                            "remove the older fact_id and keep this one.")
         return json.dumps(out)
 
+    def _show(self, a: dict) -> str:
+        """'show': read one fact by id — content, entities, trust, counts. The read
+        counterpart of update/remove (read before writing). A by-id lookup is not a
+        recall, so no retrieval recording."""
+        fact_id = a.get("fact_id")
+        if fact_id is None:
+            return tool_error("show requires 'fact_id'")
+        fact = self._store.get_fact(int(fact_id))
+        if fact is None:
+            return json.dumps({"error": f"fact_id {fact_id} not found"})
+        return json.dumps({"fact": fact})
+
     _TOOL_HANDLERS = {
         "fact_store": _tool_handler({
             "add": lambda self, a: self._add(a),
             "search": lambda self, a: _results(self._retriever.search(
                 a["query"], category=a.get("category"), min_trust=float(a.get("min_trust", self._min_trust)), limit=_limit(a))),
             "probe": lambda self, a: self._entity_query("probe", a),
+            "show": lambda self, a: self._show(a),
             "brief": lambda self, a: json.dumps(brief(
                 a["query"], self._retriever, self._store,
                 budget=max(1, int(a.get("budget", 300))),

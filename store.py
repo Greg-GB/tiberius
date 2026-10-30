@@ -286,6 +286,28 @@ class MemoryStore:
                    "ORDER BY trust_score DESC LIMIT ?")
             return [dict(r) for r in self._conn.execute(sql, params).fetchall()]
 
+    def get_fact(self, fact_id: int) -> dict | None:
+        """Read one fact by id: the full row plus its linked entities (name + aliases).
+        None if the id is unknown — callers surface the shared 'not found' contract
+        (same as remove/update/feedback). Read-only by id is not a recall, so no
+        retrieval recording (retrieval_count tracks recall, not lookups)."""
+        with self._lock:
+            row = self._one(
+                "SELECT fact_id, content, category, tags, trust_score, retrieval_count, "
+                "helpful_count, created_at, updated_at FROM facts WHERE fact_id = ?", (fact_id,))
+            if row is None:
+                return None
+            out = dict(row)
+            ents = self._conn.execute(
+                "SELECT e.name, e.aliases FROM entities e "
+                "JOIN fact_entities fe ON fe.entity_id = e.entity_id "
+                "WHERE fe.fact_id = ? ORDER BY e.entity_id", (fact_id,)).fetchall()
+            out["entities"] = [
+                {"name": r["name"],
+                 "aliases": [a.strip() for a in (r["aliases"] or "").split(",") if a.strip()]}
+                for r in ents]
+            return out
+
     def record_feedback(self, fact_id: int, helpful: bool) -> dict:
         """Adjust trust asymmetrically: helpful -> +0.05 and helpful_count += 1; unhelpful -> -0.10.
         Returns {fact_id, old_trust, new_trust, helpful_count}. Raises KeyError if fact_id is unknown."""
