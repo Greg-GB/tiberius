@@ -233,10 +233,9 @@ for r in sqlite3.connect('tiberius_store.db').execute(
 to the Python CLI in a local subprocess — the core never runs inside the node
 process, and nothing crosses the network. **Runtime-verified against live
 OpenCode 2.0.28** (2026-10-26; `memory_brief` 2026-10-29;
-`memory_drift` 2026-10-30): the eleven tools in existence at those dates,
-context injection, and session-end extraction were observed working
-end-to-end; `memory_show` (added later) is unit-verified, live runtime check
-pending; the verified payload shapes are documented in
+`memory_drift` / `memory_show` 2026-10-30): the twelve tools, context
+injection, and session-end extraction were observed working end-to-end; the
+verified payload shapes are documented in
 [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ### Install
