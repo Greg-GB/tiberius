@@ -1,6 +1,6 @@
 # List entities (`tiberius entities` / `memory_entities`)
 
-Status: **unreleased** (branch `feat/entities`): CLI `entities` subcommand,
+Status: **shipped** — v0.6.0 (2026-10-30): CLI `entities` subcommand,
 OpenCode `memory_entities` tool, Hermes provider `fact_store(action='entities')`.
 
 ## 1. Why
