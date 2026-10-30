@@ -241,6 +241,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("entity")
     s = sub.add_parser("show", help="read one fact by id (content, entities, trust, counts)")
     s.add_argument("fact_id", type=int)
+    s = sub.add_parser("entities", help="list entities with linked-fact counts and aliases (entity discovery)")
+    s.add_argument("--top", type=int, default=20)
     s = sub.add_parser("related", help="one hop: facts sharing any of the entity's entities")
     s.add_argument("entity")
     s = sub.add_parser("reason", help="compositional: facts linked to ALL entities")
@@ -351,6 +353,11 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         elif a.cmd == "list":
             rows = store.list_facts(category=a.category, min_trust=a.min_trust, limit=a.top, since=a.since)
+        elif a.cmd == "entities":
+            # Output contract (docs/entities.md): a bare JSON array — one object per entity,
+            # not the {"results": ...} wrapper the fact-browsing commands use.
+            print(json.dumps(store.list_entities(top=a.top)))
+            return 0
         else:  # extract
             raw = sys.stdin.read()
             try:

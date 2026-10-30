@@ -308,6 +308,25 @@ class MemoryStore:
                 for r in ents]
             return out
 
+    def list_entities(self, top: int = 20) -> list[dict]:
+        """List entities with their linked-fact count and aliases — entity discovery for
+        probe/related/reason/brief/drift, which take an entity name but have no name-listing
+        surface. One dict per entity ({name, aliases, fact_count}), sorted by fact_count desc,
+        then name asc; capped at ``top``. LEFT JOIN: fact_count 0 is legal — orphaned entity
+        rows (after fact deletion) must not be dropped. Read-only, not a recall, so no
+        retrieval recording (the same convention as get_fact)."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT e.name, e.aliases, COUNT(fe.fact_id) AS fact_count "
+                "FROM entities e LEFT JOIN fact_entities fe ON fe.entity_id = e.entity_id "
+                "GROUP BY e.entity_id "
+                "ORDER BY fact_count DESC, e.name ASC LIMIT ?", (max(1, top),)).fetchall()
+            return [
+                {"name": r["name"],
+                 "aliases": [a.strip() for a in (r["aliases"] or "").split(",") if a.strip()],
+                 "fact_count": r["fact_count"]}
+                for r in rows]
+
     def record_feedback(self, fact_id: int, helpful: bool) -> dict:
         """Adjust trust asymmetrically: helpful -> +0.05 and helpful_count += 1; unhelpful -> -0.10.
         Returns {fact_id, old_trust, new_trust, helpful_count}. Raises KeyError if fact_id is unknown."""

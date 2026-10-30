@@ -437,7 +437,7 @@ test("skill options unset: zero skill behavior (no skill calls, no skill tools, 
     assert.equal(ev.system.length, 1);
     assert.ok(ev.system[0].text.startsWith("Relevant stored memory"));
     assert.ok(!h.tools.some((t) => t.name.startsWith("memory_skill_")));
-    assert.equal(h.tools.length, 12);
+    assert.equal(h.tools.length, 13);
   });
 });
 
@@ -518,7 +518,7 @@ test("skill tools are registered only when skillDirs is set", async () => {
     const names = h.tools.map((t) => t.name);
     assert.ok(names.includes("memory_skill_search"));
     assert.ok(names.includes("memory_skill_load"));
-    assert.equal(h.tools.length, 14);
+    assert.equal(h.tools.length, 15);
   });
 });
 
@@ -624,6 +624,22 @@ test("memory_show surfaces the unknown-id error", async () => {
     const out = await tool.execute({ fact_id: 99999 }, { sessionID: "ses1" });
     // The CLI's JSON error passes through un-rendered (the model reads it).
     assert.deepEqual(JSON.parse(out.content), { error: "fact_id 99999 not found" });
+  });
+});
+
+test("memory_entities passes --top and returns the engine's bare array", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_entities");
+    const out = await tool.execute({});
+    // Output contract (docs/entities.md): a bare JSON array — one object per entity.
+    assert.deepEqual(JSON.parse(out.content), [
+      { name: "AcmeWidget", aliases: ["AW"], fact_count: 2 },
+      { name: "User", aliases: [], fact_count: 1 },
+    ]);
+    assert.deepEqual(logEntries().map((e) => e.argv), [A("entities", "--top", "20")]);
+    const one = await tool.execute({ top: 1 });
+    assert.deepEqual(logEntries().map((e) => e.argv).slice(1), [A("entities", "--top", "1")]);
+    assert.deepEqual(JSON.parse(one.content), [{ name: "AcmeWidget", aliases: ["AW"], fact_count: 2 }]);
   });
 });
 
