@@ -286,7 +286,9 @@ the untested assumptions):
   the same way, and runtime-verified against live OpenCode 2.0.28
   (2026-10-30); `memory_entities` (entity list, `docs/entities.md`)
   likewise — unit-verified the same way, and runtime-verified against live
-  OpenCode 2.0.28 (2026-10-30).
+  OpenCode 2.0.28 (2026-10-30); the `memory_search` / `memory_brief`
+  `since` windows (`docs/since.md`) likewise — unit-verified the same way,
+  and runtime-verified against live OpenCode 2.0.28 (2026-10-30).
 - `context` hook: searches the last user message text and pushes top facts
   into the system prompt. Default: per-turn — every **new** user message is
   searched (per-session `lastSearched` — later model calls in the same turn

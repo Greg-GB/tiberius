@@ -96,10 +96,10 @@ Files:
   `opencode/` (native OpenCode V2 plugin with per-turn context injection — on by default —
   and session-end extraction).
 - **Full operation parity**: every adapter exposes the same surface — search / probe /
-  show / related / reason, plus CRUD and hygiene (`add`, `update`, `remove`,
-  `list`, `contradict`, `feedback`). `list`, `search`, and `brief` take
-  `--since` time filtering (`created_at` at or after; `docs/since.md`). Every
-  adapter also has
+  show / entities / drift / related / reason, plus CRUD and hygiene (`add`,
+  `update`, `remove`, `list`, `contradict`, `feedback`). `list`, `search`, and
+  `brief` take `--since` time filtering (`created_at` at or after;
+  `docs/since.md`). Every adapter also has
   `brief` (the token-budgeted task context pack) — a CLI subcommand, the
   OpenCode `memory_brief` tool, and the Hermes provider's
   `fact_store(action='brief')` — one shared implementation (`docs/brief.md`).
@@ -234,7 +234,8 @@ for r in sqlite3.connect('tiberius_store.db').execute(
 to the Python CLI in a local subprocess — the core never runs inside the node
 process, and nothing crosses the network. **Runtime-verified against live
 OpenCode 2.0.28** (2026-10-26; `memory_brief` 2026-10-29;
-`memory_drift` / `memory_show` / `memory_entities` 2026-10-30): the
+`memory_drift` / `memory_show` / `memory_entities` 2026-10-30;
+`memory_search` / `memory_brief` `since` windows 2026-10-30): the
 thirteen tools, context injection, and session-end extraction were observed
 working end-to-end; the
 verified payload shapes are documented in
@@ -385,6 +386,8 @@ The repo dir must be importable as package `tiberius` (its parent on `PYTHONPATH
 ```bash
 python3 -m tiberius.cli --db PATH search "query" [--top N] [--since S]
 python3 -m tiberius.cli --db PATH probe "entity"
+python3 -m tiberius.cli --db PATH show <fact_id>
+python3 -m tiberius.cli --db PATH entities [--top N]
 python3 -m tiberius.cli --db PATH related "entity"
 python3 -m tiberius.cli --db PATH reason "a" "b"
 python3 -m tiberius.cli --db PATH brief "query" [--budget N] [--since S]
