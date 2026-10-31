@@ -455,3 +455,56 @@ def test_list_facts_order_variants_and_bad_order(tmp_path):
     with pytest.raises(ValueError):
         store.list_facts(order="banana")
     store.close()
+
+
+def test_checkpoint_set_show_clear_roundtrip_and_replace(tmp_path):
+    """docs/checkpoint.md: one active checkpoint per session; set replaces the
+    previous one (old fact ids gone), show reads, clear deletes."""
+    store = MemoryStore(str(tmp_path / "m.db"), hrr_dim=64)
+    r1 = store.set_checkpoint("s1", ["task: ship the AcmeWidget", "next: write tests"])
+    assert r1["session"] == "s1"
+    assert r1["replaced"] == 0
+    assert r1["added"] == 2
+    rows = store.list_by_tag("checkpoint:s1")
+    # Same-second created_at ties break by fact_id DESC — assert as a set.
+    assert {r["content"] for r in rows} == {"task: ship the AcmeWidget", "next: write tests"}
+    assert all(r["category"] == "checkpoint" and r["tags"] == "checkpoint:s1" for r in rows)
+    old_ids = {r["fact_id"] for r in rows}
+    r2 = store.set_checkpoint("s1", ["task: ship the AcmeWidget v2"])
+    assert r2["replaced"] == 2
+    rows2 = store.list_by_tag("checkpoint:s1")
+    assert [r["content"] for r in rows2] == ["task: ship the AcmeWidget v2"]
+    assert not (old_ids & {r["fact_id"] for r in rows2})
+    assert store.delete_by_tag("checkpoint:s1") == 1
+    assert store.list_by_tag("checkpoint:s1") == []
+    store.close()
+
+
+def test_checkpoint_sessions_distinct_and_tag_exactness(tmp_path):
+    """Session ids do not cross: s1 and s1x are different checkpoints, and tag
+    matching is exact at element boundaries (checkpoint:ab must not match
+    checkpoint:abc or a comma list containing checkpoint:abx)."""
+    store = MemoryStore(str(tmp_path / "m.db"), hrr_dim=64)
+    store.set_checkpoint("ab", ["task: alpha session"])
+    store.set_checkpoint("abc", ["task: alpha-b session"])
+    store.add_fact("An unrelated fact tagged for the x session.", tags="misc,checkpoint:abx,misc2")
+    assert [r["content"] for r in store.list_by_tag("checkpoint:ab")] == ["task: alpha session"]
+    assert [r["content"] for r in store.list_by_tag("checkpoint:abc")] == ["task: alpha-b session"]
+    assert [r["content"] for r in store.list_by_tag("checkpoint:abx")] == ["An unrelated fact tagged for the x session."]
+    store.close()
+
+
+def test_checkpoint_set_bounds(tmp_path):
+    """set_checkpoint takes 1-8 facts — a handoff, not a backup;
+    session ids strip and may not contain a comma (tag format is
+    comma-separated, a comma would cross sessions)."""
+    store = MemoryStore(str(tmp_path / "m.db"), hrr_dim=64)
+    with pytest.raises(ValueError):
+        store.set_checkpoint("s1", [])
+    with pytest.raises(ValueError):
+        store.set_checkpoint("s1", [f"line {i}" for i in range(9)])
+    ok = store.set_checkpoint("s1", [f"line {i}" for i in range(8)])
+    assert ok["added"] == 8
+    with pytest.raises(ValueError):
+        store.set_checkpoint("a,b", ["task: comma session"])
+    store.close()

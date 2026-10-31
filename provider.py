@@ -44,6 +44,9 @@ FACT_STORE_SCHEMA = {
         "treating them as drift.\n"
         "• reason — Compositional: facts connected to MULTIPLE entities simultaneously.\n"
         "• stats — Store orientation: totals, category mix, trust buckets, stale hygiene count. Call once at the start of a session or before a hygiene sweep (contradict, bulk remove).\n"
+        "• checkpoint — Session handoff: one active checkpoint per session (task/decisions/next as 1-8 short lines). "
+        "op 'set' (default, takes 'facts' + 'session') replaces it; 'show' reads; 'clear' deletes. "
+        "Set it at compaction or before ending a long task; the next session shows it instead of re-deriving state from prose.\n"
         "• contradict — Memory hygiene: find facts making conflicting claims.\n• update/remove/list — CRUD operations.\n\n"
         "IMPORTANT: Before answering anything about the user, the environment, or the project, "
         "ALWAYS recall first (probe for entities, search for topics, reason across both) — "
@@ -52,7 +55,7 @@ FACT_STORE_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["add", "add_batch", "search", "probe", "show", "entities", "brief", "drift", "related", "reason", "contradict", "update", "remove", "list", "stats"]},
+            "action": {"type": "string", "enum": ["add", "add_batch", "search", "probe", "show", "entities", "brief", "drift", "related", "reason", "contradict", "update", "remove", "list", "stats", "checkpoint"]},
             "content": {"type": "string", "description": "Fact content (required for 'add')."},
             "query": {"type": "string", "description": "Search query (required for 'search'/'brief')."},
             "facts": {"type": "array", "minItems": 1,
@@ -62,7 +65,7 @@ FACT_STORE_SCHEMA = {
                                                "category": {"type": "string"},
                                                "tags": {"type": "string"}},
                                             "required": ["content"]}]},
-                      "description": "Facts to add in one call (action 'add_batch'): strings or objects with content (plus optional category, tags). Validated up front, committed per item; a bad item errors with its index and nothing executes (docs/batch.md)."},
+                      "description": "Facts to add in one call (action 'add_batch'): strings or objects with content (plus optional category, tags). Validated up front, committed per item; a bad item errors with its index and nothing executes (docs/batch.md). For 'checkpoint' op 'set': 1-8 short handoff lines, one string each (task/decision/state/next)."},
             "project": {"type": "string", "description": "Project name for 'drift' (its plan facts are the 'plan'-tagged facts that name it)."},
             "budget": {"type": "integer", "description": "'brief'/'drift': token budget for the pack (default: 300)."},
             "support": {"type": "number", "description": "'drift': min overlap coefficient for a state fact to count as a plan-claim echo (default: 0.15)."},
@@ -74,6 +77,9 @@ FACT_STORE_SCHEMA = {
                            "description": "Category IN-list for 'search'/'brief' (e.g. [\"user_pref\", \"project\"]). Takes precedence over 'category'. Free-form — 'skill' is legal here even though it is not in the 'category' enum."},
             "exclude_category": {"type": "string",
                                  "description": "One category to drop from 'search'/'brief' results (e.g. 'skill' when the store carries many skill facts). Applies on top of 'categories'."},
+            "session": {"type": "string", "description": "'checkpoint' (required): the session id the checkpoint belongs to (e.g. the harness session id)."},
+            "op": {"type": "string", "enum": ["set", "show", "clear"],
+                   "description": "'checkpoint' only: the operation (default 'set'). 'set' replaces the session's active checkpoint with 'facts'; 'show' reads it; 'clear' deletes it."},
             "tags": {"type": "string", "description": "Comma-separated tags."},
             "trust_delta": {"type": "number", "description": "Trust adjustment for 'update'."},
             "min_trust": {"type": "number", "description": "Minimum trust filter (default: 0.3)."},
@@ -488,6 +494,7 @@ class TiberiusMemoryProvider(MemoryProvider):
                 order=a.get("order", "trust")), key="facts"),
             "stats": lambda self, a: json.dumps(self._store.stats()),
             "add_batch": lambda self, a: self._add_batch(a),
+            "checkpoint": lambda self, a: self._checkpoint(a),
         }),
         "fact_feedback": lambda self, a: self._feedback(a),
     }
@@ -500,6 +507,35 @@ class TiberiusMemoryProvider(MemoryProvider):
             return tool_error("add_batch requires a non-empty 'facts' list (strings or {content, category?, tags?} objects)")
         try:
             return json.dumps(self._store.add_facts(facts))
+        except ValueError as e:
+            return tool_error(str(e))
+
+    def _checkpoint(self, a: dict) -> str:
+        """Session handoff (docs/checkpoint.md): one active checkpoint per session.
+        op 'set' (default) replaces, 'show' reads, 'clear' deletes."""
+        if not self._store:
+            return tool_error("store unavailable")
+        session = a.get("session")
+        if not isinstance(session, str) or not session.strip():
+            return tool_error("checkpoint requires a non-empty 'session' string")
+        session = session.strip()
+        op = a.get("op", "set")
+        if op not in ("set", "show", "clear"):
+            return tool_error("checkpoint op must be one of: set, show, clear")
+        try:
+            if op == "show":
+                rows = self._store.list_by_tag(f"checkpoint:{session}")
+                return json.dumps({"session": session, "results": rows, "count": len(rows)})
+            if op == "clear":
+                return json.dumps({"session": session,
+                                   "cleared": self._store.delete_by_tag(f"checkpoint:{session}")})
+            facts = a.get("facts")
+            if (not isinstance(facts, list) or not facts
+                    or not all(isinstance(f, str) and f.strip() for f in facts)):
+                return tool_error("checkpoint set requires a non-empty 'facts' list of non-empty strings (1-8 lines)")
+            if len(facts) > 8:
+                return tool_error("checkpoint set takes at most 8 facts — a handoff, not a backup")
+            return json.dumps(self._store.set_checkpoint(session, facts))
         except ValueError as e:
             return tool_error(str(e))
 

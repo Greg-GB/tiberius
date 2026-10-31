@@ -1,6 +1,6 @@
 ---
 name: tiberius-usage
-description: "Use when local memory tools are available (search / brief / drift / probe / show / entities / related / reason / add / add_batch / feedback / update / remove / list / stats). Recall before answering questions that may already be known; store only durable facts; rate recall quality after use."
+description: "Use when local memory tools are available (search / brief / drift / probe / show / entities / related / reason / add / add_batch / feedback / update / remove / list / stats / checkpoint). Recall before answering questions that may already be known; store only durable facts; rate recall quality after use; checkpoint session state at compaction."
 ---
 
 # Using Tiberius memory effectively
@@ -80,8 +80,9 @@ projects, and tools. Nothing leaves the machine.
 - **Save:** who the user is, stable project facts, tool quirks, decisions,
   standing preferences — things the user would expect you to remember next
   session.
-- **Skip:** session state, task progress, anything easily re-discovered
-  (file contents, versions, current time), one-off instructions.
+- **Skip:** session state and task progress (that is the `checkpoint`
+  lane, not a fact), anything easily re-discovered (file contents,
+  versions, current time), one-off instructions.
 - One fact per call, present-tense declarative: `User prefers X`, never
   `I should always X` (imperatives get re-read as directives later).
 - **Keep facts small and specific**: one statement per fact. A fact that
@@ -102,6 +103,12 @@ projects, and tools. Nothing leaves the machine.
   a set of findings) use `add_batch` (one statement per item; no per-item dup
   report — use `add` when the dup check matters). `feedback` takes `fact_ids`
   (list) to rate several in one call.
+- **Checkpoint session state at compaction.** Before a long task ends or the
+  context compacts, `checkpoint set` 3-8 short lines for the session (task /
+  decisions / state / next). The next session `checkpoint show`s them instead
+  of re-deriving state from prose. One active checkpoint per session: `set`
+  replaces, `clear` deletes. Checkpoint facts are session state — `brief`
+  never injects them into a pack.
 
 ## Feedback — train the store
 

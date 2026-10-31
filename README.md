@@ -98,7 +98,7 @@ Files:
 - **Full operation parity**: every adapter exposes the same surface — search / probe /
   show / entities / drift / related / reason, plus CRUD and hygiene (`add`,
   `add_batch`, `update`, `remove`, `list`, `stats`, `contradict`,
-  `feedback`). `list`,
+  `feedback`) and session handoff (`checkpoint`, `docs/checkpoint.md`). `list`,
   `search`, and `brief` take `--since` time filtering (`created_at` at or
   after; `docs/since.md`) and `--categories` / `--exclude-category` pool
   filtering (`docs/search-categories.md`). Every adapter also has
@@ -306,11 +306,11 @@ restart.
 
 ### What the agent gets
 
-- **Fifteen tools**: `memory_search` / `memory_brief` / `memory_drift` /
+- **Sixteen tools**: `memory_search` / `memory_brief` / `memory_drift` /
   `memory_probe` / `memory_show` / `memory_entities` / `memory_related` /
   `memory_reason` / `memory_add` / `memory_add_batch` /
   `memory_feedback` / `memory_update` / `memory_remove` / `memory_list` /
-  `memory_stats` —
+  `memory_stats` / `memory_checkpoint` —
   the same operation surface as the Hermes provider (`brief` and `drift`
   are among its `fact_store` actions), where `memory_brief` is the one-call
   plugin form: a token-budgeted context pack for a task — search ∪ entity
@@ -403,6 +403,9 @@ python3 -m tiberius.cli --db PATH remove <id>
 python3 -m tiberius.cli --db PATH update <id> [--content TEXT] [--tags a,b] [--category C] [--trust-delta T]
 python3 -m tiberius.cli --db PATH list [--category C] [--min-trust T] [--since 30m|2h|7d|2w|YYYY-MM-DD] [--top N] [--order trust|retrieval|recent|stale]
 python3 -m tiberius.cli --db PATH stats
+python3 -m tiberius.cli --db PATH checkpoint set <session> "task: …" ["decision: …" ...]
+python3 -m tiberius.cli --db PATH checkpoint show <session>
+python3 -m tiberius.cli --db PATH checkpoint clear <session>
 python3 -m tiberius.cli --db PATH skill-sync --dir DIR [--dir DIR ...] [--prune]
 echo '[{"role":"user","content":"..."}]' | python3 -m tiberius.cli --db PATH extract
 ```

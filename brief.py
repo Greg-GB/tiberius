@@ -80,6 +80,13 @@ def brief(query: str, ret: FactRetriever, store: MemoryStore, *,
                       categories=categories, exclude_category=exclude_category)
     total = ret.match_count(query, category=category, min_trust=min_trust, since=since,
                             categories=categories, exclude_category=exclude_category)
+    # Checkpoint facts are session state, not durable knowledge: they are read via
+    # checkpoint show, never injected by a pack (docs/checkpoint.md). The subtraction
+    # keeps 'total' describing the same pool the caller sees (house invariant from
+    # docs/search-categories.md).
+    pool = [f for f in pool if f.get("category") != "checkpoint"]
+    total -= ret.match_count(query, category="checkpoint", min_trust=min_trust, since=since,
+                             categories=categories, exclude_category=exclude_category)
     pool_ids = {f["fact_id"] for f in pool}
 
     with store._lock:  # shared-connection rule: the entities scan touches the connection directly
@@ -89,6 +96,11 @@ def brief(query: str, ret: FactRetriever, store: MemoryStore, *,
     seen_entity: set[int] = set()
     for entity in entities:
         for f in ret.probe(entity, category=category, limit=top):
+            if f.get("category") == "checkpoint":
+                # Session state is never injected by a pack (docs/checkpoint.md) —
+                # same rule as the pool tier above. ponytail: post-filter after
+                # probe's top-N pick, like the since window below.
+                continue
             if since_cut is not None and (f.get("created_at") or "") < since_cut:
                 # The window applies to the probe tier too — otherwise a stale
                 # entity-linked fact re-enters the pack search left it out.

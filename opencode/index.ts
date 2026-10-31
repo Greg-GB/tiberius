@@ -577,6 +577,18 @@ export default Plugin.define({
           return { content: JSON.stringify(r ?? {}) };
         },
       });
+      e.add({
+        name: "memory_checkpoint",
+        description: "Session handoff: one active checkpoint per session (task/decisions/next as short lines). op 'set' (default) replaces the session's checkpoint with 'facts' (1-8 lines); 'show' reads it; 'clear' deletes it. Set it at compaction or before ending a long task; the next session shows it instead of re-deriving state from prose (docs/checkpoint.md).",
+        input: { type: "object", properties: { op: { type: "string", description: "set (default) | show | clear" }, session: { type: "string", description: "Session id the checkpoint belongs to" }, facts: { type: "array", items: { type: "string" }, description: "Checkpoint lines for op 'set' (1-8, one line each)" } }, required: ["session"] },
+        execute: async (input: any) => {
+          const op = input.op ?? "set";
+          const args = ["checkpoint", op, String(input.session)];
+          if (op === "set" && Array.isArray(input.facts)) args.push(...input.facts.map(String));
+          const r = await callEngine(engine, baseArgs, args, undefined, env);
+          return { content: JSON.stringify(r ?? {}) };
+        },
+      });
       if (skillsEnabled) {
         // Skill-catalog tools (skillDirs set): the escape hatch past the
         // per-turn top-k, and the body loader for skills the built-in skill

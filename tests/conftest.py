@@ -25,6 +25,7 @@ if str(HERMES_AGENT_REPO) not in sys.path:
 _HERMES_ONLY_TESTS = {
     "test_tiberius_auto_extract.py": "agent",
     "test_tiberius_hermes_batch.py": "agent",
+    "test_tiberius_hermes_checkpoint.py": "agent",
     "test_tiberius_hermes_stats.py": "agent",
     "test_tiberius_hermes_probe_union.py": "agent",
     "test_tiberius_hermes_search_categories.py": "agent",
