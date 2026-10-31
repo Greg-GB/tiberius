@@ -1,6 +1,6 @@
 # Multi-category filter on `search` (and `brief`)
 
-Status: unreleased — candidate. One standalone doc per branch (no roadmap index).
+Status: **shipped** — v0.6.5 (2026-10-31). One standalone doc per branch (no roadmap index).
 
 ## Problem
 
