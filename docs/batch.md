@@ -1,6 +1,6 @@
 # Batch writes: `add_batch` action and multi-fact `feedback`
 
-Status: unreleased — candidate. One standalone doc per branch (no roadmap index).
+Status: **shipped** — v0.6.2 (2026-10-30): `add_batch` action (Hermes provider `fact_store(action='add_batch')`, CLI `add-batch` from stdin, OpenCode `memory_add_batch`), multi-fact `feedback` via `fact_ids` (all three surfaces).
 
 ## Problem
 
