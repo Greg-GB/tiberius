@@ -249,6 +249,26 @@ def test_cli_search_since_invalid_is_json_error(tmp_path, capsys):
     assert "error" in out and "banana" in out["error"]
 
 
+def test_cli_search_categories_and_exclude_filter_results_and_total(tmp_path, capsys):
+    """search --categories a b + --exclude-category: both results and the 'of N' total are filtered."""
+    db = str(tmp_path / "m.db")
+    _run(capsys, "--db", db, "add", "The widget factory shipped batch 0 to the docks.", "--category", "project")
+    _run(capsys, "--db", db, "add", "The widget factory shipped batch 1 to the docks.", "--category", "tool")
+    _run(capsys, "--db", db, "add", "The widget factory shipped batch 2 to the docks.")  # general
+    out = _run(capsys, "--db", db, "search", "widget factory docks",
+               "--categories", "project", "tool", "--top", "10")
+    assert out["count"] == 2 and out["total"] == 2
+    assert {r["category"] for r in out["results"]} == {"project", "tool"}
+    out = _run(capsys, "--db", db, "search", "widget factory docks",
+               "--categories", "project", "tool", "--exclude-category", "tool", "--top", "10")
+    assert out["count"] == 1 and out["total"] == 1
+    assert out["results"][0]["category"] == "project"
+    # --categories wins over --category when both are passed
+    out = _run(capsys, "--db", db, "search", "widget factory docks",
+               "--category", "general", "--categories", "project", "tool", "--top", "10")
+    assert {r["category"] for r in out["results"]} == {"project", "tool"}
+
+
 def test_cli_add_batch_reads_json_array_from_stdin(tmp_path, capsys, monkeypatch):
     """add-batch: JSON array on stdin (strings or objects) -> {added, duplicates, fact_ids}."""
     import io

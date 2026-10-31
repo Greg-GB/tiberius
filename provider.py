@@ -32,7 +32,7 @@ FACT_STORE_SCHEMA = {
     "description": (
         "Deep structured memory with algebraic reasoning. Use alongside the memory tool — memory for always-on "
         "context, fact_store for deep recall and compositional queries.\n\nACTIONS (simple → powerful):\n"
-        "• add — Store a fact the user would expect you to remember. When a near-identical existing fact exists it is returned as possible_duplicates with a note — remove the older one if it's a true duplicate.\n• search — Keyword lookup ('editor config', 'deploy process').\n"
+        "• add — Store a fact the user would expect you to remember. When a near-identical existing fact exists it is returned as possible_duplicates with a note — remove the older one if it's a true duplicate.\n• search — Keyword lookup ('editor config', 'deploy process'). 'search'/'brief' also take 'categories' (IN list) and 'exclude_category' to filter the candidate pool — e.g. drop 'skill' facts that dilute generic queries.\n"
         "• probe — Entity recall: ALL facts about a person/thing. Pass several via the 'entities' param for the union (facts about ANY of them); 'reason' is the ALL-of-them shape.\n• related — What connects to an entity? Structural adjacency.\n"
         "• brief — One-call context pack for a task: search + entity probe, token-budgeted (whole facts only, "
         "default 300) with a window marker (how many more matches exist). Use it when starting a task instead of "
@@ -70,6 +70,10 @@ FACT_STORE_SCHEMA = {
             "entities": {"type": "array", "items": {"type": "string"}, "description": "Entity names for 'reason' (facts linked to ALL of them). For 'probe': union — facts linked to ANY of them (takes precedence over 'entity')."},
             "fact_id": {"type": "integer", "description": "Fact ID for 'show'/'update'/'remove'."},
             "category": {"type": "string", "enum": ["user_pref", "project", "tool", "general"]},
+            "categories": {"type": "array", "items": {"type": "string"},
+                           "description": "Category IN-list for 'search'/'brief' (e.g. [\"user_pref\", \"project\"]). Takes precedence over 'category'. Free-form — 'skill' is legal here even though it is not in the 'category' enum."},
+            "exclude_category": {"type": "string",
+                                 "description": "One category to drop from 'search'/'brief' results (e.g. 'skill' when the store carries many skill facts). Applies on top of 'categories'."},
             "tags": {"type": "string", "description": "Comma-separated tags."},
             "trust_delta": {"type": "number", "description": "Trust adjustment for 'update'."},
             "min_trust": {"type": "number", "description": "Minimum trust filter (default: 0.3)."},
@@ -456,7 +460,8 @@ class TiberiusMemoryProvider(MemoryProvider):
             "add": lambda self, a: self._add(a),
             "search": lambda self, a: _results(self._retriever.search(
                 a["query"], category=a.get("category"), min_trust=float(a.get("min_trust", self._min_trust)),
-                limit=_limit(a), since=a.get("since"))),
+                limit=_limit(a), since=a.get("since"),
+                categories=a.get("categories"), exclude_category=a.get("exclude_category"))),
             "probe": lambda self, a: self._probe(a),
             "show": lambda self, a: self._show(a),
             "entities": lambda self, a: self._entities(a),
@@ -464,7 +469,8 @@ class TiberiusMemoryProvider(MemoryProvider):
                 a["query"], self._retriever, self._store,
                 budget=max(1, int(a.get("budget", 300))),
                 category=a.get("category"), min_trust=float(a.get("min_trust", self._min_trust)),
-                since=a.get("since"))),
+                since=a.get("since"), categories=a.get("categories"),
+                exclude_category=a.get("exclude_category"))),
             "drift": lambda self, a: json.dumps(drift(
                 a["project"], self._retriever, self._store,
                 since=a.get("since"), budget=max(1, int(a.get("budget", 300))),

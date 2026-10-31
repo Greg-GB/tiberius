@@ -1,8 +1,8 @@
 """Harness-agnostic CLI: the same core the Hermes plugin uses, callable from any harness.
 
 Usage (repo dir importable as package ``tiberius``, i.e. its PARENT on PYTHONPATH):
-  python3 -m tiberius.cli [--db PATH] search "query" [--top N] [--category C] [--min-trust T]
-  python3 -m tiberius.cli [--db PATH] brief "query" [--budget N] [--floor T] [--top N]
+  python3 -m tiberius.cli [--db PATH] search "query" [--top N] [--category C] [--categories C ...] [--exclude-category C] [--min-trust T]
+  python3 -m tiberius.cli [--db PATH] brief "query" [--budget N] [--floor T] [--top N] [--categories C ...] [--exclude-category C]
   python3 -m tiberius.cli [--db PATH] drift "project" [--since S] [--budget N] [--top N] [--support T]
   python3 -m tiberius.cli [--db PATH] probe "entity" [entity ...]
   python3 -m tiberius.cli [--db PATH] related "entity"
@@ -225,6 +225,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("query")
     s.add_argument("--top", type=int, default=5)
     s.add_argument("--category")
+    s.add_argument("--categories", nargs="+", help="category IN list (takes precedence over --category)")
+    s.add_argument("--exclude-category", help="drop one category from the candidate pool")
     s.add_argument("--min-trust", type=float, default=0.3)
     s.add_argument("--since", help="only facts created at or after: ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w)")
     s = sub.add_parser("brief", help="token-budgeted context pack: search ∪ probe, floored, budget-filled")
@@ -233,6 +235,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--floor", type=float, default=0.10, help="min search-pool score; entity-only facts bypass (default 0.10)")
     s.add_argument("--top", type=int, default=20, help="candidate pool size per search/probe (default 20)")
     s.add_argument("--category", help="restrict to one fact category")
+    s.add_argument("--categories", nargs="+", help="category IN list (takes precedence over --category)")
+    s.add_argument("--exclude-category", help="drop one category from the search pool")
     s.add_argument("--min-trust", type=float, default=0.3, help="min trust for the search pool (default 0.3)")
     s.add_argument("--since", help="window the search pool to facts created at or after: ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w)")
     s.add_argument("--skills", type=int, default=2, help="max skill-lane entries (default 2)")
@@ -303,7 +307,8 @@ def main(argv: list[str] | None = None) -> int:
             a.budget, a.floor, a.skills = max(1, a.budget), max(0.0, a.floor), max(0, a.skills)
             print(json.dumps(brief(a.query, ret, store, budget=a.budget, floor=a.floor,
                                    top=a.top, category=a.category, min_trust=a.min_trust,
-                                   since=a.since, skills=a.skills)))
+                                   since=a.since, categories=a.categories,
+                                   exclude_category=a.exclude_category, skills=a.skills)))
             return 0
         if a.cmd == "drift":
             a.budget, a.top, a.support = max(1, a.budget), max(1, a.top), max(0.0, a.support)
@@ -312,8 +317,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         total = None
         if a.cmd == "search":
-            rows = ret.search(a.query, category=a.category, min_trust=a.min_trust, limit=a.top, since=a.since)
-            total = ret.match_count(a.query, category=a.category, min_trust=a.min_trust, since=a.since)
+            rows = ret.search(a.query, category=a.category, min_trust=a.min_trust, limit=a.top, since=a.since,
+                              categories=a.categories, exclude_category=a.exclude_category)
+            total = ret.match_count(a.query, category=a.category, min_trust=a.min_trust, since=a.since,
+                                    categories=a.categories, exclude_category=a.exclude_category)
         elif a.cmd == "probe":
             rows = ret.probe(a.entity, limit=10)
         elif a.cmd == "show":

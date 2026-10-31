@@ -10,7 +10,7 @@ AGENTS.md lists the hard invariants; this file explains them.
 |---|---|---|
 | `holographic.py` | HRR math: phase-encoded vectors, bind/unbind/bundle, blob (de)serialization | numpy (optional) |
 | `store.py` | SQLite schema, `MemoryStore` (shared connection), entity extraction/resolution, `extract_statements` | stdlib only |
-| `retrieval.py` | `FactRetriever`: search / probe (single entity or N-entity union via `entities`) / related / reason / contradict | store, holographic |
+| `retrieval.py` | `FactRetriever`: search (with `categories`/`exclude_category` pool filters) / probe (single entity or N-entity union via `entities`) / related / reason / contradict | store, holographic |
 | `brief.py` | `brief()`: token-budgeted context pack — search ∪ probe, dedupe, tiered rank, budget fill; harness-free, wrapped by the CLI subcommand, the OpenCode tool, and the Hermes provider action | store, retrieval |
 | `drift.py` | `drift()`: two-sided plan/state pack — exact tag+entity plan query, recency-ranked state window, overlap-coefficient echo markers; harness-free, wrapped by the CLI subcommand, the OpenCode tool, and the Hermes provider action | store, retrieval, brief |
 | `provider.py` | Hermes `MemoryProvider` adapter (in-process) | Hermes core + all of the above |

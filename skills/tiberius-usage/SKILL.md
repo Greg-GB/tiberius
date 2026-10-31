@@ -41,7 +41,9 @@ projects, and tools. Nothing leaves the machine.
   search it before answering definitively.
 - **What was just recorded?** `list` with `since` (`24h`, `7d`, or an ISO
   date) — recent facts by time, not by keyword. `search` and `brief` take the
-  same `since` window (facts created at or after).
+  same `since` window (facts created at or after), plus `categories` (IN list)
+  and `exclude_category` to filter the candidate pool — e.g. drop `skill`
+  facts that dilute generic queries (`docs/search-categories.md`).
 - **Conflicting recall:** if recalled facts disagree about the same thing,
   don't silently pick the higher-ranked one — ask which is current, then
   `update` or `remove` the stale one. A surfaced contradiction is cheaper
