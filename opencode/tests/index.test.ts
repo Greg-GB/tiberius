@@ -707,6 +707,28 @@ test("memory_stats sends the stats argv and passes the aggregate through", async
   });
 });
 
+test("memory_probe sends probe ENTITY for a single entity", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_probe");
+    const out = await tool.execute({ entity: "Zephyr" });
+    // Output contract (docs/probe-union.md): the probe rows, id/content/category.
+    assert.deepEqual(JSON.parse(out.content), [{ id: 1, content: "linked to Zephyr", category: "general" }]);
+    assert.deepEqual(logEntries().map((e) => e.argv), [A("probe", "Zephyr")]);
+  });
+});
+
+test("memory_probe sends probe A B for entities and errors client-side when neither is set", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_probe");
+    await tool.execute({ entities: ["Zephyr", "Nimbus"] });
+    assert.deepEqual(logEntries().map((e) => e.argv), [A("probe", "Zephyr", "Nimbus")]);
+    // Neither entity nor entities: client-side error, engine NOT called.
+    const err = await tool.execute({});
+    assert.deepEqual(JSON.parse(err.content), { error: "entity or entities required" });
+    assert.equal(logEntries().length, 1);
+  });
+});
+
 test("memory_list passes --order when set and omits it when unset", async () => {
   await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
     const tool = h.tools.find((t) => t.name === "memory_list");

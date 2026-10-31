@@ -363,3 +363,41 @@ def test_since_invalid_value_raises_valueerror(tmp_path):
             ret.search("AcmeWidget", since="banana")
     finally:
         store.close()
+
+def test_probe_union_returns_facts_linked_to_any_of_the_entities(tmp_path):
+    """Union probe (docs/probe-union.md): probe([A, B]) returns facts linked to ANY of A or B
+    (the OR counterpart of reason, which requires ALL). A fact linked to both appears once;
+    a fact linked only to a third entity is excluded; single-name probe is unchanged."""
+    pytest.importorskip("numpy")
+    path = tmp_path / "tiberius_store.db"
+    store = MemoryStore(path, hrr_dim=128)
+    fid_a = store.add_fact("Zephyr handles the nightly backups")
+    fid_b = store.add_fact("Nimbus fronts the public API gateway")
+    fid_both = store.add_fact("Zephyr and Nimbus share the staging network")
+    fid_other = store.add_fact("Cirrus compiles the release artifacts")
+    try:
+        r = FactRetriever(store).probe(["Zephyr", "Nimbus"], limit=10)
+        ids = {row["fact_id"] for row in r}
+        assert {fid_a, fid_b, fid_both} <= ids  # any-of: each listed entity's facts present
+        assert fid_other not in ids  # third entity excluded
+        assert len(ids) == len(r)  # the shared fact is not returned twice
+        # single-name probe through the same path: Zephyr's facts only
+        r1 = FactRetriever(store).probe("Zephyr", limit=10)
+        ids1 = {row["fact_id"] for row in r1}
+        assert fid_a in ids1 and fid_both in ids1 and fid_b not in ids1
+    finally:
+        store.close()
+
+
+def test_probe_union_unknown_names_fall_back_to_fts5(tmp_path):
+    """Union probe with no structurally linked names falls back to FTS5 (space-joined query)
+    instead of erroring — same degradation as the single-entity fallback."""
+    pytest.importorskip("numpy")
+    path = tmp_path / "tiberius_store.db"
+    store = MemoryStore(path, hrr_dim=128)
+    store.add_fact("The relay queue drains every hour on schedule")
+    try:
+        r = FactRetriever(store).probe(["Ghostbird", "Mistral"], limit=5)
+        assert isinstance(r, list)  # fallback search, no exception
+    finally:
+        store.close()

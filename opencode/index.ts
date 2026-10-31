@@ -422,10 +422,15 @@ export default Plugin.define({
       });
       e.add({
         name: "memory_probe",
-        description: "Recall ALL stored facts linked to one entity (a person, service, or project name).",
-        input: { type: "object", properties: { entity: { type: "string" } }, required: ["entity"] },
+        description: "Recall ALL stored facts linked to an entity (a person, service, or project name). Pass entities (a list) for the union — facts linked to any of them.",
+        input: { type: "object", properties: {
+          entity: { type: "string", description: "One entity name" },
+          entities: { type: "array", items: { type: "string" }, description: "Several entity names: union — facts linked to any of them (takes precedence over entity)" },
+        } },
         execute: async (input: any) => {
-          const r = await callEngine(engine, baseArgs, ["probe", String(input.entity)], undefined, env);
+          const names: string[] = (Array.isArray(input.entities) ? input.entities.map(String) : input.entity ? [String(input.entity)] : []).filter((n: string) => n);
+          if (!names.length) return { content: JSON.stringify({ error: "entity or entities required" }) };
+          const r = await callEngine(engine, baseArgs, ["probe", ...names], undefined, env);
           return { content: JSON.stringify((r?.results ?? []).map((f) => ({ id: f.fact_id, content: f.content, category: f.category }))) };
         },
       });

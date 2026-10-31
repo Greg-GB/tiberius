@@ -33,7 +33,7 @@ FACT_STORE_SCHEMA = {
         "Deep structured memory with algebraic reasoning. Use alongside the memory tool — memory for always-on "
         "context, fact_store for deep recall and compositional queries.\n\nACTIONS (simple → powerful):\n"
         "• add — Store a fact the user would expect you to remember. When a near-identical existing fact exists it is returned as possible_duplicates with a note — remove the older one if it's a true duplicate.\n• search — Keyword lookup ('editor config', 'deploy process').\n"
-        "• probe — Entity recall: ALL facts about a person/thing.\n• related — What connects to an entity? Structural adjacency.\n"
+        "• probe — Entity recall: ALL facts about a person/thing. Pass several via the 'entities' param for the union (facts about ANY of them); 'reason' is the ALL-of-them shape.\n• related — What connects to an entity? Structural adjacency.\n"
         "• brief — One-call context pack for a task: search + entity probe, token-budgeted (whole facts only, "
         "default 300) with a window marker (how many more matches exist). Use it when starting a task instead of "
         "several separate recall calls.\n"
@@ -66,8 +66,8 @@ FACT_STORE_SCHEMA = {
             "project": {"type": "string", "description": "Project name for 'drift' (its plan facts are the 'plan'-tagged facts that name it)."},
             "budget": {"type": "integer", "description": "'brief'/'drift': token budget for the pack (default: 300)."},
             "support": {"type": "number", "description": "'drift': min overlap coefficient for a state fact to count as a plan-claim echo (default: 0.15)."},
-            "entity": {"type": "string", "description": "Entity name for 'probe'/'related'."},
-            "entities": {"type": "array", "items": {"type": "string"}, "description": "Entity names for 'reason'."},
+            "entity": {"type": "string", "description": "Entity name for 'probe'/'related'. 'probe' also accepts several names via 'entities' (union: any)."},
+            "entities": {"type": "array", "items": {"type": "string"}, "description": "Entity names for 'reason' (facts linked to ALL of them). For 'probe': union — facts linked to ANY of them (takes precedence over 'entity')."},
             "fact_id": {"type": "integer", "description": "Fact ID for 'show'/'update'/'remove'."},
             "category": {"type": "string", "enum": ["user_pref", "project", "tool", "general"]},
             "tags": {"type": "string", "description": "Comma-separated tags."},
@@ -411,8 +411,14 @@ class TiberiusMemoryProvider(MemoryProvider):
     # argument coercion order (and therefore which error surfaces first) mirrors the underlying call order.
 
     def _entity_query(self, method: str, a: dict) -> str:
-        """'probe' / 'related': single-entity retriever queries."""
+        """'related': single-entity retriever queries."""
         return _results(getattr(self._retriever, method)(a["entity"], category=a.get("category"), limit=_limit(a)))
+
+    def _probe(self, a: dict) -> str:
+        """"probe": one entity (`entity`) or N-entity union (`entities`: facts linked to any of them,
+        the OR counterpart of `reason`). `entities` takes precedence when present."""
+        names = a.get("entities") or a["entity"]
+        return _results(self._retriever.probe(names, category=a.get("category"), limit=_limit(a)))
 
     def _add(self, a: dict) -> str:
         """'add': store the fact and report near-duplicate candidates (report-only — the caller removes if it agrees)."""
@@ -451,7 +457,7 @@ class TiberiusMemoryProvider(MemoryProvider):
             "search": lambda self, a: _results(self._retriever.search(
                 a["query"], category=a.get("category"), min_trust=float(a.get("min_trust", self._min_trust)),
                 limit=_limit(a), since=a.get("since"))),
-            "probe": lambda self, a: self._entity_query("probe", a),
+            "probe": lambda self, a: self._probe(a),
             "show": lambda self, a: self._show(a),
             "entities": lambda self, a: self._entities(a),
             "brief": lambda self, a: json.dumps(brief(

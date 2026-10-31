@@ -4,7 +4,7 @@ Usage (repo dir importable as package ``tiberius``, i.e. its PARENT on PYTHONPAT
   python3 -m tiberius.cli [--db PATH] search "query" [--top N] [--category C] [--min-trust T]
   python3 -m tiberius.cli [--db PATH] brief "query" [--budget N] [--floor T] [--top N]
   python3 -m tiberius.cli [--db PATH] drift "project" [--since S] [--budget N] [--top N] [--support T]
-  python3 -m tiberius.cli [--db PATH] probe "entity"
+  python3 -m tiberius.cli [--db PATH] probe "entity" [entity ...]
   python3 -m tiberius.cli [--db PATH] related "entity"
   python3 -m tiberius.cli [--db PATH] reason "entity" "entity" [...]
   python3 -m tiberius.cli [--db PATH] contradict [--category C] [--threshold T] [--top N]
@@ -242,8 +242,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--budget", type=int, default=300, help="token budget, char/4 estimate (default 300)")
     s.add_argument("--top", type=int, default=20, help="candidate pool size per state-side recall (default 20)")
     s.add_argument("--support", type=float, default=0.15, help="min overlap coefficient for a state echo to count (default 0.15)")
-    s = sub.add_parser("probe", help="all facts linked to one entity")
-    s.add_argument("entity")
+    s = sub.add_parser("probe", help="all facts linked to one entity (several names: union, any of them)")
+    s.add_argument("entity", nargs="+", help="one or more entity names (several = union: facts linked to any of them; the OR counterpart of 'reason')")
     s = sub.add_parser("show", help="read one fact by id (content, entities, trust, counts)")
     s.add_argument("fact_id", type=int)
     s = sub.add_parser("entities", help="list entities with linked-fact counts and aliases (entity discovery)")
