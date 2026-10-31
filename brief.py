@@ -64,6 +64,7 @@ def brief(query: str, ret: FactRetriever, store: MemoryStore, *,
           budget: int = 300, floor: float = 0.10, top: int = 20,
           category: str | None = None, min_trust: float = 0.3,
           since: str | None = None,
+          categories: list[str] | None = None, exclude_category: str | None = None,
           skills: int = 2) -> dict:
     """Token-budgeted context pack for a query: search ∪ probe → dedupe →
     floor → tiered rank → budget fill → optional skill lane.
@@ -75,8 +76,10 @@ def brief(query: str, ret: FactRetriever, store: MemoryStore, *,
     window, not the whole (same marker as the prefetch counter). Both take
     the same since window (created_at at or after), so the marker describes
     the window, not the whole store."""
-    pool = ret.search(query, category=category, min_trust=min_trust, limit=top, since=since)
-    total = ret.match_count(query, category=category, min_trust=min_trust, since=since)
+    pool = ret.search(query, category=category, min_trust=min_trust, limit=top, since=since,
+                      categories=categories, exclude_category=exclude_category)
+    total = ret.match_count(query, category=category, min_trust=min_trust, since=since,
+                            categories=categories, exclude_category=exclude_category)
     pool_ids = {f["fact_id"] for f in pool}
 
     with store._lock:  # shared-connection rule: the entities scan touches the connection directly

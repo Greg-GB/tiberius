@@ -401,3 +401,74 @@ def test_probe_union_unknown_names_fall_back_to_fts5(tmp_path):
         assert isinstance(r, list)  # fallback search, no exception
     finally:
         store.close()
+
+
+def _cat_store(tmp_path):
+    """Three facts, one per category, all sharing the query tokens."""
+    pytest.importorskip("numpy")
+    store = MemoryStore(tmp_path / "t.db", hrr_dim=128)
+    store.add_fact("The deploy pipeline runs on the build host", category="project")
+    store.add_fact("The deploy pipeline uses containers on the build host", category="tool")
+    store.add_fact("The deploy pipeline ships releases nightly", category="general")
+    return store
+
+
+def test_search_categories_inclusion_filters_the_pool(tmp_path):
+    """categories=['project','tool'] keeps exactly those two facts of the three-candidate pool."""
+    store = _cat_store(tmp_path)
+    try:
+        out = FactRetriever(store).search("deploy pipeline build host", categories=["project", "tool"], limit=10)
+        cats = {r["category"] for r in out}
+        assert cats == {"project", "tool"}  # general dropped, both named categories present
+    finally:
+        store.close()
+
+
+def test_search_exclude_category_drops_from_pool(tmp_path):
+    """exclude_category='general' removes that fact from results and from match_count's pool."""
+    store = _cat_store(tmp_path)
+    try:
+        ret = FactRetriever(store)
+        out = ret.search("deploy pipeline build host", exclude_category="general", limit=10)
+        assert {r["category"] for r in out} == {"project", "tool"}
+        assert ret.match_count("deploy pipeline build host", exclude_category="general") == 2
+    finally:
+        store.close()
+
+
+def test_search_exclude_wins_when_category_included(tmp_path):
+    """A fact named in categories that equals exclude_category is dropped (exclusion on top)."""
+    store = _cat_store(tmp_path)
+    try:
+        out = FactRetriever(store).search("deploy pipeline build host",
+                                          categories=["project", "general"],
+                                          exclude_category="general", limit=10)
+        assert {r["category"] for r in out} == {"project"}
+    finally:
+        store.close()
+
+
+def test_search_categories_take_precedence_over_category(tmp_path):
+    """Both set: the singular category is ignored, the IN list wins (house pattern)."""
+    store = _cat_store(tmp_path)
+    try:
+        out = FactRetriever(store).search("deploy pipeline build host",
+                                          category="general",
+                                          categories=["project", "tool"], limit=10)
+        assert {r["category"] for r in out} == {"project", "tool"}
+    finally:
+        store.close()
+
+
+def test_match_count_agrees_with_search_under_filters(tmp_path):
+    """The CLI/provider 'of N' marker must describe the same pool the caller sees."""
+    store = _cat_store(tmp_path)
+    try:
+        ret = FactRetriever(store)
+        n = ret.match_count("deploy pipeline build host", categories=["project", "general"],
+                            exclude_category="general")
+        got = len(ret.search("deploy pipeline build host", categories=["project", "general"],
+                             exclude_category="general", limit=50))
+        assert n == got == 1
+    finally:
+        store.close()

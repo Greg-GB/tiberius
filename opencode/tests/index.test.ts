@@ -612,6 +612,24 @@ test("memory_brief passes since to the engine", async () => {
   });
 });
 
+test("memory_search passes categories and exclude_category to the engine, omits both when unset", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_search");
+    await tool.execute({ query: "project memory", categories: ["user_pref", "project"], exclude_category: "skill" });
+    assert.deepEqual(logEntries().map((e) => e.argv), [A("search", "project memory", "--categories", "user_pref", "project", "--exclude-category", "skill", "--top", "5")]);
+    await tool.execute({ query: "project memory" });
+    assert.deepEqual(logEntries().map((e) => e.argv).slice(1), [A("search", "project memory", "--top", "5")]);
+  });
+});
+
+test("memory_brief passes categories and exclude_category to the engine", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_brief");
+    await tool.execute({ query: "project memory", budget: 50, categories: ["project"], exclude_category: "skill" }, { sessionID: "ses1" });
+    assert.deepEqual(logEntries().map((e) => e.argv), [A("brief", "project memory", "--categories", "project", "--exclude-category", "skill", "--budget", "50")]);
+  });
+});
+
 test("memory_show calls the engine, passes the fact id, and marks the fact seen", async () => {
   await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
     const tool = h.tools.find((t) => t.name === "memory_show");

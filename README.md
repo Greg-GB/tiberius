@@ -100,7 +100,8 @@ Files:
   `add_batch`, `update`, `remove`, `list`, `stats`, `contradict`,
   `feedback`). `list`,
   `search`, and `brief` take `--since` time filtering (`created_at` at or
-  after; `docs/since.md`). Every adapter also has
+  after; `docs/since.md`) and `--categories` / `--exclude-category` pool
+  filtering (`docs/search-categories.md`). Every adapter also has
   `brief` (the token-budgeted task context pack) — a CLI subcommand, the
   OpenCode `memory_brief` tool, and the Hermes provider's
   `fact_store(action='brief')` — one shared implementation (`docs/brief.md`).
