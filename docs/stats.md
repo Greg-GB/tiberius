@@ -1,6 +1,6 @@
 # `stats` action and `list` `order` parameter
 
-Status: unreleased — candidate. One standalone doc per branch (no roadmap index).
+Status: **shipped** — v0.6.3 (2026-10-31): `stats` action (Hermes provider `fact_store(action='stats')`, CLI `stats`, OpenCode `memory_stats`), `list` `order` parameter — `trust`/`retrieval`/`recent`/`stale` (all three surfaces).
 
 ## Problem
 
