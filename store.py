@@ -305,10 +305,17 @@ class MemoryStore:
             return True
 
     def list_facts(self, category: str | None = None, min_trust: float = 0.0, limit: int = 50,
-                   since: str | None = None) -> list[dict]:
-        """Browse facts ordered by trust_score descending, optionally filtered by category / min trust /
-        since (ISO date/datetime UTC or relative 30m/2h/7d/2w — facts created at or after it).
-        Since filters on created_at, which only the write path sets — updates don't move it."""
+                   since: str | None = None, order: str = "trust") -> list[dict]:
+        """Browse facts, optionally filtered by category / min trust / since
+        (ISO date/datetime UTC or relative 30m/2h/7d/2w — facts created at or
+        after it). Since filters on created_at, which only the write path
+        sets — updates don't move it. Order: trust (default, trust_score DESC),
+        retrieval (retrieval_count DESC), recent (created_at DESC), stale
+        (updated_at ASC)."""
+        order_map = {"trust": "trust_score DESC", "retrieval": "retrieval_count DESC",
+                     "recent": "created_at DESC", "stale": "updated_at ASC"}
+        if order not in order_map:
+            raise ValueError(f"order must be one of {sorted(order_map)}")
         with self._lock:
             category_clause = "AND category = ? " if category is not None else ""
             since_clause = "AND created_at >= ? " if since is not None else ""
@@ -316,8 +323,29 @@ class MemoryStore:
                      + ([_parse_since(since)] if since is not None else []) + [limit]
             sql = (f"SELECT fact_id, content, category, tags, trust_score, retrieval_count, helpful_count, "
                    f"created_at, updated_at FROM facts WHERE trust_score >= ? {category_clause}{since_clause}"
-                   "ORDER BY trust_score DESC LIMIT ?")
+                   f"ORDER BY {order_map[order]} LIMIT ?")
             return [dict(r) for r in self._conn.execute(sql, params).fetchall()]
+
+    def stats(self) -> dict:
+        """Orientation aggregates: total facts, entity count, category mix,
+        trust buckets (0.3/0.5/0.7 cuts), and the stale hygiene count
+        (trust < 0.5 and updated_at older than 30 days). Read-only, no params."""
+        with self._lock:
+            total = self._one("SELECT COUNT(*) AS n FROM facts")["n"]
+            entities = self._one("SELECT COUNT(*) AS n FROM entities")["n"]
+            by_category = {r["category"]: r["n"] for r in self._conn.execute(
+                "SELECT category, COUNT(*) AS n FROM facts GROUP BY category")}
+            trust_buckets = {}
+            for label, lo, hi in (("0.0-0.3", 0.0, 0.3), ("0.3-0.5", 0.3, 0.5),
+                                  ("0.5-0.7", 0.5, 0.7), ("0.7+", 0.7, 1.01)):
+                n = self._one("SELECT COUNT(*) AS n FROM facts WHERE trust_score >= ? AND trust_score < ?",
+                              (lo, hi))["n"]
+                if n:
+                    trust_buckets[label] = n
+            stale = self._one(
+                "SELECT COUNT(*) AS n FROM facts WHERE trust_score < 0.5 AND updated_at <= datetime('now', '-30 days')")["n"]
+            return {"total": total, "entities": entities, "by_category": by_category,
+                    "trust_buckets": trust_buckets, "stale_count": stale}
 
     def get_fact(self, fact_id: int) -> dict | None:
         """Read one fact by id: the full row plus its linked entities (name + aliases).
