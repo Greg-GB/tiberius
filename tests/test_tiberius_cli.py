@@ -302,3 +302,19 @@ def test_cli_list_order_and_rejects_bad_order(tmp_path, capsys):
     assert out["results"][0]["fact_id"] == fid
     with pytest.raises(SystemExit):
         _run(capsys, "--db", db, "list", "--order", "banana")  # argparse rejects unknown --order
+
+
+def test_cli_probe_union_and_single(tmp_path, capsys):
+    """CLI probe is variadic (docs/probe-union.md): `probe A B` unions the entity sets;
+    one name still behaves exactly as before."""
+    pytest.importorskip("numpy")
+    db = str(tmp_path / "m.db")
+    a = _run(capsys, "--db", db, "add", "Zephyr handles the nightly backups.")["fact_id"]
+    b = _run(capsys, "--db", db, "add", "Nimbus fronts the public API gateway.")["fact_id"]
+    _run(capsys, "--db", db, "add", "Cirrus compiles the release artifacts.")["fact_id"]
+    out = _run(capsys, "--db", db, "probe", "Zephyr", "Nimbus")
+    ids = {r["fact_id"] for r in out["results"]}
+    assert {a, b} <= ids  # any-of union
+    out1 = _run(capsys, "--db", db, "probe", "Zephyr")
+    ids1 = {r["fact_id"] for r in out1["results"]}
+    assert a in ids1 and b not in ids1  # single name unchanged

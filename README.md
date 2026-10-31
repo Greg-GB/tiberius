@@ -387,7 +387,7 @@ The repo dir must be importable as package `tiberius` (its parent on `PYTHONPATH
 
 ```bash
 python3 -m tiberius.cli --db PATH search "query" [--top N] [--since S]
-python3 -m tiberius.cli --db PATH probe "entity"
+python3 -m tiberius.cli --db PATH probe "entity" [entity ...]
 python3 -m tiberius.cli --db PATH show <fact_id>
 python3 -m tiberius.cli --db PATH entities [--top N]
 python3 -m tiberius.cli --db PATH related "entity"
