@@ -306,15 +306,19 @@ def test_cli_list_order_and_rejects_bad_order(tmp_path, capsys):
 
 def test_cli_probe_union_and_single(tmp_path, capsys):
     """CLI probe is variadic (docs/probe-union.md): `probe A B` unions the entity sets;
-    one name still behaves exactly as before."""
+    one name still behaves exactly as before. The shared fact (linked to both entities)
+    is pinned explicitly so an intersection bug — which would drop it — cannot hide
+    behind the FTS fallback."""
     pytest.importorskip("numpy")
     db = str(tmp_path / "m.db")
     a = _run(capsys, "--db", db, "add", "Zephyr handles the nightly backups.")["fact_id"]
     b = _run(capsys, "--db", db, "add", "Nimbus fronts the public API gateway.")["fact_id"]
+    shared = _run(capsys, "--db", db, "add", "Zephyr and Nimbus share the staging network.")["fact_id"]
     _run(capsys, "--db", db, "add", "Cirrus compiles the release artifacts.")["fact_id"]
     out = _run(capsys, "--db", db, "probe", "Zephyr", "Nimbus")
     ids = {r["fact_id"] for r in out["results"]}
-    assert {a, b} <= ids  # any-of union
+    assert {a, b, shared} <= ids  # any-of union, shared fact included once
+    assert len(ids) == len(out["results"])  # no duplicate rows
     out1 = _run(capsys, "--db", db, "probe", "Zephyr")
     ids1 = {r["fact_id"] for r in out1["results"]}
-    assert a in ids1 and b not in ids1  # single name unchanged
+    assert a in ids1 and shared in ids1 and b not in ids1  # single name unchanged
