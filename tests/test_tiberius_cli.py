@@ -342,3 +342,35 @@ def test_cli_probe_union_and_single(tmp_path, capsys):
     out1 = _run(capsys, "--db", db, "probe", "Zephyr")
     ids1 = {r["fact_id"] for r in out1["results"]}
     assert a in ids1 and shared in ids1 and b not in ids1  # single name unchanged
+
+
+def test_cli_checkpoint_roundtrip_replace_and_clear(tmp_path, capsys):
+    """docs/checkpoint.md via the CLI: set (replace semantics) -> show -> set
+    again -> clear."""
+    db = str(tmp_path / "m.db")
+    out = _run(capsys, "--db", db, "checkpoint", "set", "s1", "task: ship the AcmeWidget", "next: write tests")
+    assert out["session"] == "s1"
+    assert out["replaced"] == 0
+    assert out["added"] == 2
+    out = _run(capsys, "--db", db, "checkpoint", "show", "s1")
+    assert out["count"] == 2
+    assert {r["content"] for r in out["results"]} == {"task: ship the AcmeWidget", "next: write tests"}
+    assert all(r["category"] == "checkpoint" for r in out["results"])
+    out = _run(capsys, "--db", db, "checkpoint", "set", "s1", "task: done")
+    assert out["replaced"] == 2
+    assert _run(capsys, "--db", db, "checkpoint", "show", "s1")["count"] == 1
+    assert _run(capsys, "--db", db, "checkpoint", "clear", "s1")["cleared"] == 1
+    assert _run(capsys, "--db", db, "checkpoint", "show", "s1")["count"] == 0
+    # an unknown session shows empty, not an error
+    assert _run(capsys, "--db", db, "checkpoint", "show", "nope") == {"session": "nope", "results": [], "count": 0}
+
+
+def test_cli_checkpoint_bounds_error(tmp_path, capsys):
+    """More than 8 lines is a handoff-size violation: JSON error, exit 1, no
+    partial write."""
+    db = str(tmp_path / "m.db")
+    rc = cli.main(["--db", db, "checkpoint", "set", "s1"] + [f"line {i}" for i in range(9)])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert "1-8" in out["error"]
+    assert _run(capsys, "--db", db, "checkpoint", "show", "s1")["count"] == 0

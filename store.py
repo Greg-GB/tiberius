@@ -135,6 +135,16 @@ def _parse_since(raw: str) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _tag_match(tag: str) -> tuple[str, list]:
+    """Exact tag membership in the comma-separated tags column: the tag equals the
+    whole column or is one of the comma-split elements (four boundary-anchored
+    cases). All bound — no LIKE wildcards leak from tag content; session ids
+    are plain strings."""
+    t = tag.strip()
+    return (f"(tags = ? OR tags LIKE ? || ',%' OR tags LIKE '%,' || ? || ',%' "
+            f"OR tags LIKE '%,' || ?)", [t, t, t, t])
+
+
 class MemoryStore:
     """SQLite-backed fact store with entity resolution and trust scoring.
 
@@ -303,6 +313,52 @@ class MemoryStore:
             self._conn.execute("DELETE FROM fact_entities WHERE fact_id = ?", (fact_id,))
             self._write("DELETE FROM facts WHERE fact_id = ?", (fact_id,))
             return True
+
+    # --- Session checkpoints (docs/checkpoint.md) ------------------------------
+    # One active checkpoint per session: set replaces, show reads, clear deletes.
+    # Checkpoint facts are category "checkpoint", tagged "checkpoint:<session>".
+
+    def list_by_tag(self, tag: str, limit: int = 100) -> list[dict]:
+        """Facts carrying the exact tag (tags is comma-separated), newest first.
+        Tag lookup, not token recall — the checkpoint show surface. Read-only by
+        tag is not a recall, so no retrieval recording (same convention as
+        get_fact)."""
+        clause, params = _tag_match(tag)
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT fact_id, content, category, tags, trust_score, retrieval_count, helpful_count, "
+                "created_at, updated_at FROM facts WHERE " + clause +
+                " ORDER BY created_at DESC, fact_id DESC LIMIT ?", [*params, max(1, limit)]).fetchall()
+            return [dict(r) for r in rows]
+
+    def delete_by_tag(self, tag: str) -> int:
+        """Delete every fact carrying the exact tag (and their entity links).
+        ponytail: one statement at a time under the shared lock — checkpoint
+        sets are <=8 rows; batch if it ever matters."""
+        clause, params = _tag_match(tag)
+        with self._lock:
+            ids = [r["fact_id"] for r in self._conn.execute(
+                f"SELECT fact_id FROM facts WHERE {clause}", params).fetchall()]
+            for fid in ids:
+                self._conn.execute("DELETE FROM fact_entities WHERE fact_id = ?", (fid,))
+            if ids:
+                self._write("DELETE FROM facts WHERE fact_id IN (" + ",".join("?" * len(ids)) + ")", ids)
+            return len(ids)
+
+    def set_checkpoint(self, session: str, facts: list[str]) -> dict:
+        """Replace the session's active checkpoint: delete that session's existing
+        checkpoint facts, then batch-add the new ones as category "checkpoint"
+        tagged "checkpoint:<session>". One active checkpoint per session — the
+        latest set is the whole story (docs/checkpoint.md). Returns the add_facts
+        result plus {session, replaced}."""
+        if not 1 <= len(facts) <= 8:
+            raise ValueError("checkpoint set takes 1-8 facts — a handoff, not a backup")
+        tag = f"checkpoint:{session}"
+        replaced = self.delete_by_tag(tag)
+        res = self.add_facts([{"content": f, "category": "checkpoint", "tags": tag} for f in facts])
+        res["session"] = session
+        res["replaced"] = replaced
+        return res
 
     def list_facts(self, category: str | None = None, min_trust: float = 0.0, limit: int = 50,
                    since: str | None = None, order: str = "trust") -> list[dict]:

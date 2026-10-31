@@ -437,7 +437,7 @@ test("skill options unset: zero skill behavior (no skill calls, no skill tools, 
     assert.equal(ev.system.length, 1);
     assert.ok(ev.system[0].text.startsWith("Relevant stored memory"));
     assert.ok(!h.tools.some((t) => t.name.startsWith("memory_skill_")));
-    assert.equal(h.tools.length, 15);
+    assert.equal(h.tools.length, 16);
   });
 });
 
@@ -518,7 +518,7 @@ test("skill tools are registered only when skillDirs is set", async () => {
     const names = h.tools.map((t) => t.name);
     assert.ok(names.includes("memory_skill_search"));
     assert.ok(names.includes("memory_skill_load"));
-    assert.equal(h.tools.length, 17);
+    assert.equal(h.tools.length, 18);
   });
 });
 
@@ -722,6 +722,23 @@ test("memory_stats sends the stats argv and passes the aggregate through", async
       stale_count: 0,
     });
     assert.deepEqual(logEntries().map((e) => e.argv), [A("stats")]);
+  });
+});
+
+test("memory_checkpoint sends checkpoint argv per op and passes the result through", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_checkpoint");
+    const out = await tool.execute({ op: "set", session: "ses1", facts: ["task: ship it", "next: test it"] });
+    assert.ok(JSON.parse(out.content)); // the fake engine's echo, passed through as JSON
+    await tool.execute({ session: "ses1" }); // op defaults to "set" — no facts sent
+    await tool.execute({ op: "show", session: "ses1" });
+    await tool.execute({ op: "clear", session: "ses1" });
+    assert.deepEqual(logEntries().map((e) => e.argv), [
+      A("checkpoint", "set", "ses1", "task: ship it", "next: test it"),
+      A("checkpoint", "set", "ses1"),
+      A("checkpoint", "show", "ses1"),
+      A("checkpoint", "clear", "ses1"),
+    ]);
   });
 });
 

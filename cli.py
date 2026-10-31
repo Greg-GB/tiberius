@@ -15,6 +15,9 @@ Usage (repo dir importable as package ``tiberius``, i.e. its PARENT on PYTHONPAT
   python3 -m tiberius.cli [--db PATH] update <fact_id> [--content TEXT] [--tags a,b] [--category C] [--trust-delta T]
   python3 -m tiberius.cli [--db PATH] list [--category C] [--min-trust T] [--since S] [--top N] [--order trust|retrieval|recent|stale]
   python3 -m tiberius.cli [--db PATH] stats
+  python3 -m tiberius.cli [--db PATH] checkpoint set <session> "task: …" ["decision: …" ...]   # replace (one active per session)
+  python3 -m tiberius.cli [--db PATH] checkpoint show <session>
+  python3 -m tiberius.cli [--db PATH] checkpoint clear <session>
   python3 -m tiberius.cli [--db PATH] skill-sync --dir DIR [--dir DIR ...] [--prune]
   echo '[{"role":"user","content":"..."}]' | python3 -m tiberius.cli [--db PATH] extract
 
@@ -290,6 +293,13 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--order", choices=["trust", "retrieval", "recent", "stale"], default="trust",
                    help="ordering: trust (default), retrieval (most-recalled first), recent (newest first), stale (oldest-updated first)")
     sub.add_parser("stats", help="store orientation: totals, category mix, trust buckets, stale count")
+    s = sub.add_parser("checkpoint", help="session handoff: one active checkpoint per session (docs/checkpoint.md)")
+    csub = s.add_subparsers(dest="cp_op", required=True)
+    cs = csub.add_parser("set", help="replace the session's checkpoint with 1-8 handoff lines")
+    cs.add_argument("session")
+    cs.add_argument("facts", nargs="+", metavar="FACT")
+    csub.add_parser("show", help="read the session's active checkpoint").add_argument("session")
+    csub.add_parser("clear", help="delete the session's checkpoint").add_argument("session")
     sub.add_parser("extract", help="regex-extract facts from a JSON message list on stdin")
 
     a = p.parse_args(argv)
@@ -377,6 +387,18 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps({"error": f"fact_id {a.fact_id} not found"}))  # same contract as remove/feedback
                 return 1
             print(json.dumps({"updated": a.fact_id}))
+            return 0
+        elif a.cmd == "checkpoint":
+            tag = f"checkpoint:{a.session}"
+            if a.cp_op == "set":
+                print(json.dumps(store.set_checkpoint(a.session, a.facts)))
+                return 0
+            if a.cp_op == "show":
+                rows = store.list_by_tag(tag)
+                print(json.dumps({"session": a.session, "results": [_row(r) for r in rows],
+                                  "count": len(rows)}))
+                return 0
+            print(json.dumps({"session": a.session, "cleared": store.delete_by_tag(tag)}))
             return 0
         elif a.cmd == "stats":
             print(json.dumps(store.stats()))

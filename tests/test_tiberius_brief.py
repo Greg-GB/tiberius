@@ -157,3 +157,33 @@ def test_brief_since_windows_pool_marker_and_probe_tier(tmp_path, capsys):
     assert ids[0] not in shown and ids[1] not in shown  # the probe tier would have re-admitted them
     out = _run(capsys, "--db", db, "brief", "AcmeWidget", "--budget", "500")
     assert out["count"] == 4 and out["total"] == 4
+
+
+def test_brief_pool_excludes_checkpoint_facts(tmp_path, capsys):
+    """docs/checkpoint.md: checkpoint facts are session state, not durable
+    knowledge — the pool drops them and 'total' describes the same filtered
+    pool (the house invariant from docs/search-categories.md)."""
+    db = str(tmp_path / "m.db")
+    _seed(capsys, db, n=2)
+    _run(capsys, "--db", db, "checkpoint", "set", "s1", "task: AcmeWidget handoff line", "next: AcmeWidget test plan")
+    out = _run(capsys, "--db", db, "brief", "AcmeWidget")
+    assert out["total"] == 2  # the two checkpoint lines are out of the marker too
+    assert out["count"] <= 2
+    assert all(r["category"] != "checkpoint" for r in out["facts"])
+
+
+def test_brief_entity_tier_skips_checkpoint_facts(tmp_path, capsys):
+    """The probe tier applies the same rule: a ZetaDock-linked checkpoint fact
+    that fell out of the token pool (low trust) must not re-enter the pack via
+    the entity-probe path (docs/checkpoint.md)."""
+    db = str(tmp_path / "m.db")
+    normal = _run(capsys, "--db", db, "add", "The ZetaDock launcher starts on boot.")
+    cp = _run(capsys, "--db", db, "checkpoint", "set", "s1", "task: migrate the ZetaDock database")
+    cp_id = cp["fact_ids"][0]
+    for _ in range(6):  # 0.5 -> clamped 0.0: below the pool's min_trust (0.3)
+        _run(capsys, "--db", db, "feedback", str(cp_id), "unhelpful")
+    out = _run(capsys, "--db", db, "brief", "ZetaDock")
+    ids = [r["fact_id"] for r in out["facts"]]
+    assert normal["fact_id"] in ids
+    assert cp_id not in ids
+    assert out["entity_only"] == 0
