@@ -43,6 +43,7 @@ FACT_STORE_SCHEMA = {
         "plan claims with no state echo since the anchor: stale, unbuilt, or never recorded — verify before "
         "treating them as drift.\n"
         "• reason — Compositional: facts connected to MULTIPLE entities simultaneously.\n"
+        "• stats — Store orientation: totals, category mix, trust buckets, stale hygiene count. Call once at the start of a session or before a hygiene sweep (contradict, bulk remove).\n"
         "• contradict — Memory hygiene: find facts making conflicting claims.\n• update/remove/list — CRUD operations.\n\n"
         "IMPORTANT: Before answering anything about the user, the environment, or the project, "
         "ALWAYS recall first (probe for entities, search for topics, reason across both) — "
@@ -51,7 +52,7 @@ FACT_STORE_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["add", "add_batch", "search", "probe", "show", "entities", "brief", "drift", "related", "reason", "contradict", "update", "remove", "list"]},
+            "action": {"type": "string", "enum": ["add", "add_batch", "search", "probe", "show", "entities", "brief", "drift", "related", "reason", "contradict", "update", "remove", "list", "stats"]},
             "content": {"type": "string", "description": "Fact content (required for 'add')."},
             "query": {"type": "string", "description": "Search query (required for 'search'/'brief')."},
             "facts": {"type": "array", "minItems": 1,
@@ -73,6 +74,8 @@ FACT_STORE_SCHEMA = {
             "trust_delta": {"type": "number", "description": "Trust adjustment for 'update'."},
             "min_trust": {"type": "number", "description": "Minimum trust filter (default: 0.3)."},
             "since": {"type": "string", "description": "'list'/'search'/'brief': only facts created at or after the cutoff. 'drift': the state-window anchor. ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w); 'drift' defaults to the oldest plan fact."},
+            "order": {"type": "string", "enum": ["trust", "retrieval", "recent", "stale"],
+                      "description": "'list': ordering — trust (default, trust_score desc), retrieval (most-recalled first), recent (newest first), stale (oldest-updated first)."},
             "limit": {"type": "integer", "description": "Max results (default: 10)."},
         },
         "required": ["action"],
@@ -469,7 +472,9 @@ class TiberiusMemoryProvider(MemoryProvider):
                 tags=a.get("tags"), category=a.get("category"))}),
             "remove": lambda self, a: json.dumps({"removed": self._store.remove_fact(int(a["fact_id"]))}),
             "list": lambda self, a: _results(self._store.list_facts(
-                category=a.get("category"), min_trust=float(a.get("min_trust", 0.0)), limit=_limit(a), since=a.get("since")), key="facts"),
+                category=a.get("category"), min_trust=float(a.get("min_trust", 0.0)), limit=_limit(a), since=a.get("since"),
+                order=a.get("order", "trust")), key="facts"),
+            "stats": lambda self, a: json.dumps(self._store.stats()),
             "add_batch": lambda self, a: self._add_batch(a),
         }),
         "fact_feedback": lambda self, a: self._feedback(a),

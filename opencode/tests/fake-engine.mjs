@@ -222,6 +222,18 @@ switch (cmd) {
     console.log(JSON.stringify(all.slice(0, top)));
     break;
   }
+  case "stats": {
+    if (process.env.TIBERUS_FAKE_FAIL === "stats") fail("stats");
+    // Emulates cli.py stats (docs/stats.md): the aggregate orientation object.
+    console.log(JSON.stringify({
+      total: 42,
+      entities: 2,
+      by_category: { general: 2, skill: 40 },
+      trust_buckets: { "0.5-0.7": 40, "0.7+": 2 },
+      stale_count: 0,
+    }));
+    break;
+  }
   case "extract": {
     let input = "";
     process.stdin.setEncoding("utf8");

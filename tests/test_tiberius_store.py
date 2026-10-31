@@ -406,3 +406,52 @@ def test_record_feedbacks_continue_on_error_per_item(tmp_path):
     assert out[1]["fact_id"] == 99999 and "not found" in out[1]["error"]
     assert out[0]["new_trust"] > out[0]["old_trust"]
     store.close()
+
+def test_stats_totals_categories_buckets_and_stale_window(tmp_path):
+    """stats aggregates: totals, category mix, exact 0.3/0.5/0.7 bucket edges, 30-day stale window."""
+    store = MemoryStore(str(tmp_path / "m.db"), hrr_dim=64)
+    low = store.add_fact("The zephyr engine cache is keyed on route id.", category="general")
+    mid = store.add_fact("The zephyr engine queue drains nightly.", category="project")
+    high1 = store.add_fact("The zephyr engine deploys via the release channel.", category="general")
+    high2 = store.add_fact("The zephyr engine tests run on every push.", category="tool")
+    for _ in range(2):
+        store.record_feedback(mid, helpful=False)       # 0.5 -> 0.3 : exactly the [0.3, 0.5) edge (unhelpful delta is -0.10)
+    store.record_feedback(high1, helpful=True)
+    store.record_feedback(high1, helpful=True)          # 0.5 -> 0.6 : [0.5, 0.7)
+    for _ in range(4):
+        store.record_feedback(high2, helpful=True)      # 0.5 -> 0.7 : exactly the 0.7+ edge
+    store._conn.execute("UPDATE facts SET updated_at = datetime('now', '-40 days') WHERE fact_id = ?", (mid,))
+    store._conn.commit()
+    s = store.stats()
+    assert s["total"] == 4 and s["entities"] == 0
+    assert s["by_category"] == {"general": 2, "project": 1, "tool": 1}
+    assert s["trust_buckets"] == {"0.3-0.5": 1, "0.5-0.7": 2, "0.7+": 1}  # low (0.5) sits on the 0.5 edge up
+    assert s["stale_count"] == 1  # only mid: trust < 0.5 AND older than 30 days
+    store.close()
+
+
+def test_list_facts_order_variants_and_bad_order(tmp_path):
+    """order: trust (default, unchanged), retrieval, recent, stale; bad value raises ValueError."""
+    store = MemoryStore(str(tmp_path / "m.db"), hrr_dim=64)
+    a = store.add_fact("Zephyr engine starts at dawn.")
+    b = store.add_fact("Zephyr engine stops at dusk.")
+    c = store.add_fact("Zephyr engine idles at noon.")
+    store.record_feedback(b, helpful=True)                       # b 0.55
+    store.record_feedback(c, helpful=True)
+    store.record_feedback(c, helpful=True)                       # c 0.60
+    store._conn.execute("UPDATE facts SET retrieval_count = 3 WHERE fact_id = ?", (a,))
+    store._conn.execute("UPDATE facts SET retrieval_count = 1 WHERE fact_id = ?", (b,))
+    store._conn.execute("UPDATE facts SET created_at = '2026-01-01 00:00:00' WHERE fact_id = ?", (a,))
+    store._conn.execute("UPDATE facts SET created_at = '2026-01-03 00:00:00' WHERE fact_id = ?", (b,))
+    store._conn.execute("UPDATE facts SET updated_at = '2026-03-01 00:00:00' WHERE fact_id = ?", (a,))
+    store._conn.execute("UPDATE facts SET updated_at = '2026-02-15 00:00:00' WHERE fact_id = ?", (b,))
+    store._conn.execute("UPDATE facts SET updated_at = '2026-02-01 00:00:00' WHERE fact_id = ?", (c,))
+    store._conn.commit()
+    assert [r["fact_id"] for r in store.list_facts()] == [c, b, a]          # default = trust desc (unchanged)
+    assert [r["fact_id"] for r in store.list_facts(order="trust")] == [c, b, a]
+    assert [r["fact_id"] for r in store.list_facts(order="retrieval")] == [a, b, c]  # 3, 1, 0
+    assert [r["fact_id"] for r in store.list_facts(order="recent")] == [c, b, a]    # c newest, a oldest
+    assert [r["fact_id"] for r in store.list_facts(order="stale")] == [c, b, a]     # c oldest-updated
+    with pytest.raises(ValueError):
+        store.list_facts(order="banana")
+    store.close()

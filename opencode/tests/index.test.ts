@@ -437,7 +437,7 @@ test("skill options unset: zero skill behavior (no skill calls, no skill tools, 
     assert.equal(ev.system.length, 1);
     assert.ok(ev.system[0].text.startsWith("Relevant stored memory"));
     assert.ok(!h.tools.some((t) => t.name.startsWith("memory_skill_")));
-    assert.equal(h.tools.length, 14);
+    assert.equal(h.tools.length, 15);
   });
 });
 
@@ -518,7 +518,7 @@ test("skill tools are registered only when skillDirs is set", async () => {
     const names = h.tools.map((t) => t.name);
     assert.ok(names.includes("memory_skill_search"));
     assert.ok(names.includes("memory_skill_load"));
-    assert.equal(h.tools.length, 16);
+    assert.equal(h.tools.length, 17);
   });
 });
 
@@ -688,6 +688,32 @@ test("memory_entities passes --top and returns the engine's bare array", async (
     const one = await tool.execute({ top: 1 });
     assert.deepEqual(logEntries().map((e) => e.argv).slice(1), [A("entities", "--top", "1")]);
     assert.deepEqual(JSON.parse(one.content), [{ name: "AcmeWidget", aliases: ["AW"], fact_count: 2 }]);
+  });
+});
+
+test("memory_stats sends the stats argv and passes the aggregate through", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_stats");
+    const out = await tool.execute({});
+    // Output contract (docs/stats.md): the aggregate orientation object, passed through.
+    assert.deepEqual(JSON.parse(out.content), {
+      total: 42,
+      entities: 2,
+      by_category: { general: 2, skill: 40 },
+      trust_buckets: { "0.5-0.7": 40, "0.7+": 2 },
+      stale_count: 0,
+    });
+    assert.deepEqual(logEntries().map((e) => e.argv), [A("stats")]);
+  });
+});
+
+test("memory_list passes --order when set and omits it when unset", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_list");
+    await tool.execute({});
+    assert.deepEqual(logEntries().map((e) => e.argv), [A("list", "--top", "50")]);
+    await tool.execute({ order: "retrieval", top: 5 });
+    assert.deepEqual(logEntries().map((e) => e.argv).slice(1), [A("list", "--order", "retrieval", "--top", "5")]);
   });
 });
 

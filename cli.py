@@ -13,6 +13,8 @@ Usage (repo dir importable as package ``tiberius``, i.e. its PARENT on PYTHONPAT
   python3 -m tiberius.cli [--db PATH] feedback <fact_id|id,id,...> helpful|unhelpful
   python3 -m tiberius.cli [--db PATH] remove <fact_id>
   python3 -m tiberius.cli [--db PATH] update <fact_id> [--content TEXT] [--tags a,b] [--category C] [--trust-delta T]
+  python3 -m tiberius.cli [--db PATH] list [--category C] [--min-trust T] [--since S] [--top N] [--order trust|retrieval|recent|stale]
+  python3 -m tiberius.cli [--db PATH] stats
   python3 -m tiberius.cli [--db PATH] skill-sync --dir DIR [--dir DIR ...] [--prune]
   echo '[{"role":"user","content":"..."}]' | python3 -m tiberius.cli [--db PATH] extract
 
@@ -276,11 +278,14 @@ def main(argv: list[str] | None = None) -> int:
                    help="a directory of <skill-name>/SKILL.md subdirs (repeatable; pass the full list)")
     s.add_argument("--prune", action="store_true",
                    help="remove skill facts (those with a skill-id tag) whose id no longer appears in the given dirs")
-    s = sub.add_parser("list", help="browse facts by trust (find fact_ids to remove)")
+    s = sub.add_parser("list", help="browse facts (find fact_ids to remove/update)")
     s.add_argument("--category")
     s.add_argument("--min-trust", type=float, default=0.0)
     s.add_argument("--since", help="only facts created at or after: ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w)")
     s.add_argument("--top", type=int, default=50)
+    s.add_argument("--order", choices=["trust", "retrieval", "recent", "stale"], default="trust",
+                   help="ordering: trust (default), retrieval (most-recalled first), recent (newest first), stale (oldest-updated first)")
+    sub.add_parser("stats", help="store orientation: totals, category mix, trust buckets, stale count")
     sub.add_parser("extract", help="regex-extract facts from a JSON message list on stdin")
 
     a = p.parse_args(argv)
@@ -366,8 +371,12 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             print(json.dumps({"updated": a.fact_id}))
             return 0
+        elif a.cmd == "stats":
+            print(json.dumps(store.stats()))
+            return 0
         elif a.cmd == "list":
-            rows = store.list_facts(category=a.category, min_trust=a.min_trust, limit=a.top, since=a.since)
+            rows = store.list_facts(category=a.category, min_trust=a.min_trust, limit=a.top, since=a.since,
+                                    order=a.order)
         elif a.cmd == "entities":
             # Output contract (docs/entities.md): a bare JSON array — one object per entity,
             # not the {"results": ...} wrapper the fact-browsing commands use.

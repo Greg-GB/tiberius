@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from hermes_plugin_tiberius import cli
 from hermes_plugin_tiberius import holographic as hrr
 
@@ -282,3 +284,21 @@ def test_cli_feedback_comma_ids_batches_and_single_id_unchanged(tmp_path, capsys
     assert out["applied"] == 2 and all(r["ok"] for r in out["results"])
     out = _run(capsys, "--db", db, "feedback", str(a), "helpful")
     assert out["fact_id"] == a and "results" not in out  # single-id path byte-identical
+
+def test_cli_stats_output(tmp_path, capsys):
+    db = str(tmp_path / "m.db")
+    _run(capsys, "--db", db, "add", "The zephyr engine starts at dawn.")
+    out = _run(capsys, "--db", db, "stats")
+    assert out["total"] == 1
+    assert out["by_category"] == {"general": 1}
+    assert out["trust_buckets"] == {"0.5-0.7": 1}
+    assert out["stale_count"] == 0
+
+
+def test_cli_list_order_and_rejects_bad_order(tmp_path, capsys):
+    db = str(tmp_path / "m.db")
+    fid = _run(capsys, "--db", db, "add", "The zephyr engine starts at dawn.")["fact_id"]
+    out = _run(capsys, "--db", db, "list", "--order", "recent")
+    assert out["results"][0]["fact_id"] == fid
+    with pytest.raises(SystemExit):
+        _run(capsys, "--db", db, "list", "--order", "banana")  # argparse rejects unknown --order

@@ -97,7 +97,8 @@ Files:
   and session-end extraction).
 - **Full operation parity**: every adapter exposes the same surface — search / probe /
   show / entities / drift / related / reason, plus CRUD and hygiene (`add`,
-  `add_batch`, `update`, `remove`, `list`, `contradict`, `feedback`). `list`,
+  `add_batch`, `update`, `remove`, `list`, `stats`, `contradict`,
+  `feedback`). `list`,
   `search`, and `brief` take `--since` time filtering (`created_at` at or
   after; `docs/since.md`). Every adapter also has
   `brief` (the token-budgeted task context pack) — a CLI subcommand, the
@@ -304,10 +305,11 @@ restart.
 
 ### What the agent gets
 
-- **Fourteen tools**: `memory_search` / `memory_brief` / `memory_drift` /
+- **Fifteen tools**: `memory_search` / `memory_brief` / `memory_drift` /
   `memory_probe` / `memory_show` / `memory_entities` / `memory_related` /
   `memory_reason` / `memory_add` / `memory_add_batch` /
-  `memory_feedback` / `memory_update` / `memory_remove` / `memory_list` —
+  `memory_feedback` / `memory_update` / `memory_remove` / `memory_list` /
+  `memory_stats` —
   the same operation surface as the Hermes provider (`brief` and `drift`
   are among its `fact_store` actions), where `memory_brief` is the one-call
   plugin form: a token-budgeted context pack for a task — search ∪ entity
@@ -398,7 +400,8 @@ echo '["fact", {"content": "fact", "category": "project"}]' | python3 -m tiberiu
 python3 -m tiberius.cli --db PATH feedback <id|id,...> helpful|unhelpful
 python3 -m tiberius.cli --db PATH remove <id>
 python3 -m tiberius.cli --db PATH update <id> [--content TEXT] [--tags a,b] [--category C] [--trust-delta T]
-python3 -m tiberius.cli --db PATH list [--category C] [--min-trust T] [--since 30m|2h|7d|2w|YYYY-MM-DD] [--top N]
+python3 -m tiberius.cli --db PATH list [--category C] [--min-trust T] [--since 30m|2h|7d|2w|YYYY-MM-DD] [--top N] [--order trust|retrieval|recent|stale]
+python3 -m tiberius.cli --db PATH stats
 python3 -m tiberius.cli --db PATH skill-sync --dir DIR [--dir DIR ...] [--prune]
 echo '[{"role":"user","content":"..."}]' | python3 -m tiberius.cli --db PATH extract
 ```

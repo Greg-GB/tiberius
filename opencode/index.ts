@@ -37,8 +37,8 @@
  * What it does:
  *   - tools: memory_search / memory_brief / memory_drift / memory_probe /
  *     memory_show / memory_entities / memory_related / memory_reason /
- *     memory_add / memory_feedback / memory_update / memory_remove /
- *     memory_list (same operation surface as
+ *     memory_add / memory_add_batch / memory_feedback / memory_update /
+ *     memory_remove / memory_list / memory_stats (same operation surface as
  *     the Hermes provider — see skills/tiberius-usage/SKILL.md), plus, with
  *     skillDirs: memory_skill_search (escape hatch past the per-turn top-k)
  *     and memory_skill_load (SKILL.md body for skills the built-in skill tool
@@ -546,15 +546,26 @@ export default Plugin.define({
       });
       e.add({
         name: "memory_list",
-        description: "Browse stored facts ordered by trust (find fact_ids to update or remove).",
-        input: { type: "object", properties: { category: { type: "string", description: "user_pref | project | tool | general" }, since: { type: "string", description: "Only facts created at or after — ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w)" }, top: { type: "integer", description: "Max results (default 50)" } } },
+        description: "Browse stored facts (find fact_ids to update or remove). Default order: trust, descending.",
+        input: { type: "object", properties: { category: { type: "string", description: "user_pref | project | tool | general" }, since: { type: "string", description: "Only facts created at or after — ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w)" }, top: { type: "integer", description: "Max results (default 50)" }, order: { type: "string", description: "One of: trust (default) | retrieval (most-recalled first) | recent (newest first) | stale (oldest-updated first)" } } },
         execute: async (input: any) => {
           const args = ["list"];
           if (input.category) args.push("--category", String(input.category));
           if (input.since) args.push("--since", String(input.since));
+          if (input.order) args.push("--order", String(input.order));
           args.push("--top", String(input.top ?? 50));
           const r = await callEngine(engine, baseArgs, args, undefined, env);
-          return { content: JSON.stringify((r?.results ?? []).map((f) => ({ id: f.fact_id, content: f.content, category: f.category, trust: f.trust_score }))) };
+          return { content: JSON.stringify((r?.results ?? []).map((f) => ({ id: f.fact_id, content: f.content, category: f.category, trust: f.trust_score }))) }
+        },
+      });
+      e.add({
+        name: "memory_stats",
+        description: "Store orientation: total facts, entity count, category mix, trust buckets, and the stale hygiene count (low trust, old). Call once at session start or before a hygiene sweep (memory_contradict, bulk memory_remove). No input.",
+        input: { type: "object", properties: {} },
+        execute: async (_input: any) => {
+          // Output contract (docs/stats.md): the aggregate object — pass the engine's stdout through.
+          const r = await callEngine(engine, baseArgs, ["stats"], undefined, env);
+          return { content: JSON.stringify(r ?? {}) };
         },
       });
       if (skillsEnabled) {
