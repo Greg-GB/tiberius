@@ -1,6 +1,6 @@
 # Union-mode `probe`
 
-Status: unreleased — candidate. One standalone doc per branch (no roadmap index).
+Status: **shipped** — v0.6.4 (2026-10-31): union `probe` (Hermes provider `entities` param, CLI `probe "a" "b" "c"`, OpenCode `memory_probe.entities`) — facts linked to any of the named entities, the OR counterpart of `reason`.
 
 ## Problem
 
