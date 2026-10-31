@@ -353,6 +353,12 @@ class MemoryStore:
         result plus {session, replaced}."""
         if not 1 <= len(facts) <= 8:
             raise ValueError("checkpoint set takes 1-8 facts — a handoff, not a backup")
+        if "," in session:
+            # A comma in the session id would make the tag "checkpoint:a,b"
+            # indistinguishable from two tags — the exact-match lookup then
+            # crosses sessions.
+            raise ValueError("checkpoint session ids must not contain a comma (tags are comma-separated)")
+        session = session.strip()
         tag = f"checkpoint:{session}"
         replaced = self.delete_by_tag(tag)
         res = self.add_facts([{"content": f, "category": "checkpoint", "tags": tag} for f in facts])

@@ -80,8 +80,9 @@ projects, and tools. Nothing leaves the machine.
 - **Save:** who the user is, stable project facts, tool quirks, decisions,
   standing preferences — things the user would expect you to remember next
   session.
-- **Skip:** session state, task progress, anything easily re-discovered
-  (file contents, versions, current time), one-off instructions.
+- **Skip:** session state and task progress (that is the `checkpoint`
+  lane, not a fact), anything easily re-discovered (file contents,
+  versions, current time), one-off instructions.
 - One fact per call, present-tense declarative: `User prefers X`, never
   `I should always X` (imperatives get re-read as directives later).
 - **Keep facts small and specific**: one statement per fact. A fact that

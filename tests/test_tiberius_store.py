@@ -495,7 +495,9 @@ def test_checkpoint_sessions_distinct_and_tag_exactness(tmp_path):
 
 
 def test_checkpoint_set_bounds(tmp_path):
-    """set_checkpoint takes 1-8 facts — a handoff, not a backup."""
+    """set_checkpoint takes 1-8 facts — a handoff, not a backup;
+    session ids strip and may not contain a comma (tag format is
+    comma-separated, a comma would cross sessions)."""
     store = MemoryStore(str(tmp_path / "m.db"), hrr_dim=64)
     with pytest.raises(ValueError):
         store.set_checkpoint("s1", [])
@@ -503,4 +505,6 @@ def test_checkpoint_set_bounds(tmp_path):
         store.set_checkpoint("s1", [f"line {i}" for i in range(9)])
     ok = store.set_checkpoint("s1", [f"line {i}" for i in range(8)])
     assert ok["added"] == 8
+    with pytest.raises(ValueError):
+        store.set_checkpoint("a,b", ["task: comma session"])
     store.close()

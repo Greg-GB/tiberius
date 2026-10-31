@@ -61,8 +61,10 @@ instead of from prose.
   `clear`. (Store growth is bounded in practice: active sessions only.)
 - No cross-session merge or diff of checkpoints.
 - Checkpoint facts are excluded from `brief` by default (they are session
-  state, not durable knowledge; `brief` already filters by category, this is
-  a documented use of that filter).
+  state, not durable knowledge). The exclusion is built into `brief` itself —
+  both tiers (pool and entity-probe) and the `total` marker, which
+  subtracts the checkpoint matches so the window invariant holds — not a
+  caller-side filter.
 
 ## Tests planned
 
