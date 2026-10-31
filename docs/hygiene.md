@@ -1,0 +1,60 @@
+# `hygiene`: store health report (dry-run first)
+
+Status: unreleased — candidate. One standalone doc per branch (no roadmap index).
+
+## Problem
+
+The store accrues debt that no current action surfaces:
+
+- **Orphan entities** — measured on the live store: a large majority of
+  entities link exactly one fact. They cost retrieval surface (probe/related
+  fanout) with no graph value.
+- **Prose-blob facts** — multi-paragraph facts that should be several
+  smaller ones (they dilute FTS pools and are hard to supersede/merge).
+- **Stale low-trust facts** — below the useful trust band with no feedback.
+- **Near-duplicate clusters** — `add` catches them at write time, but
+  nothing finds the pairs that slipped through.
+
+`stats` reports totals; `contradict` audits claims. Neither answers "what is
+the mess, and how big is it?"
+
+## Design
+
+One new action, **read-only in v1**:
+
+| args | effect |
+|---|---|
+| `hygiene([limits])` | return a debt report |
+
+Report sections (each capped, `limit` per section, default 20):
+
+1. `orphan_entities` — entities with ≤1 linked fact, count + sample list.
+2. `near_duplicates` — content-similarity clusters, reusing the detector
+   `add` already runs (same threshold constant).
+3. `oversized_facts` — content longer than `max_words` (default 200).
+4. `low_trust` — facts below `min_trust` (default 0.45) with
+   `helpful_count = 0`.
+5. `superseded_count` — count only (section appears once `supersede` ships;
+   absent before).
+
+Apply (v1, the only safe auto-fix): `hygiene --apply orphans` prunes
+entities with zero linked facts after fact deletions (true orphans, not the
+single-fact ones, which are just young). Single-fact entities are report-only
+in v1 — pruning them loses probe fanout for currently-valid single-fact
+entities.
+
+## Non-goals
+
+- No auto-merge, no auto-supersede, no auto-remove of facts. Every fact-level
+  fix is a human/agent decision made with the report in hand.
+- No scheduling or background runs.
+- No thresholds persisted in the store: they are call args with defaults.
+
+## Tests planned
+
+- fixture store containing all four debt classes → report finds each, caps
+  respected.
+- apply `orphans` removes zero-fact entities only; single-fact entities
+  untouched.
+- report shape stable (section names, caps) for provider + CLI.
+- `stats` unaffected; hygiene writes nothing except the orphan apply.
