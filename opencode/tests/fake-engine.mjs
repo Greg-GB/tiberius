@@ -234,6 +234,17 @@ switch (cmd) {
     }));
     break;
   }
+  case "probe": {
+    if (process.env.TIBERUS_FAKE_FAIL === "probe") fail("probe");
+    // Emulates cli.py probe (docs/probe-union.md): trailing names are the entity set
+    // (one name: that entity; several: union, any of them).
+    const names = rest;
+    console.log(JSON.stringify({
+      results: names.map((n, i) => ({ fact_id: i + 1, content: `linked to ${n}`, category: "general" })),
+      count: names.length,
+    }));
+    break;
+  }
   case "extract": {
     let input = "";
     process.stdin.setEncoding("utf8");

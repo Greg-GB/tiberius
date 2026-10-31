@@ -188,19 +188,24 @@ class FactRetriever:
         vecs = [v for v in vecs if v is not None]
         return hrr.bundle(*vecs) if vecs else None
 
-    def probe(self, entity: str, category: str | None = None, limit: int = 10) -> list[dict]:
+    def probe(self, entity: str | list[str], category: str | None = None, limit: int = 10) -> list[dict]:
         """Compositional entity query: facts where the entity is a linked subject, ranked by content
-        centrality to the entity's fact set. Entity structure lives in fact_entities (SQL); the HRR is
-        used only to rank within the set — unbinding a key from a bundled fact vector is algebraically
-        meaningless (a bundle is lossy), which made the old per-fact unbind return noise.
-        Falls back to FTS5 when nothing is structurally linked or without numpy."""
+        centrality to the entity's fact set. Pass a list of names for the union — facts linked to ANY
+        of them, ranked against the union's own set (the OR counterpart of `reason`, which requires ALL).
+        A single name goes through the same path (union of one set is the set). Entity structure lives in
+        fact_entities (SQL); the HRR is used only to rank within the set — unbinding a key from a bundled
+        fact vector is algebraically meaningless (a bundle is lossy), which made the old per-fact unbind
+        return noise. Falls back to FTS5 when nothing is structurally linked or without numpy."""
         with self.store._lock:  # retriever reads must not interleave with a store writer on the shared connection
-            entity = self._canonical(entity)  # alias -> canonical, so either AKA name works
+            names = [self._canonical(e) for e in (entity if isinstance(entity, list) else [entity])]  # alias -> canonical, so either AKA name works
             if not hrr._HAS_NUMPY:
-                return self.search(entity, category=category, limit=limit)
-            rows = self._rows_by_ids(self._entity_fact_ids(entity, category), category)
+                return self.search(" ".join(names), category=category, limit=limit)
+            ids = set.union(*[self._entity_fact_ids(n, category) for n in names])  # one name: its own set
+            if not ids:
+                return self.search(" ".join(names), category=category, limit=limit)
+            rows = self._rows_by_ids(ids, category)
             if not rows:
-                return self.search(entity, category=category, limit=limit)
+                return self.search(" ".join(names), category=category, limit=limit)
             ctx = self._ctx_bundle(rows)
             return self._recorded(self._rank_by_ctx(rows, ctx, limit))
 

@@ -11,7 +11,9 @@ projects, and tools. Nothing leaves the machine.
 ## Recall — before answering
 
 - **Probe first** when the question names an entity (a person, project,
-  service): `probe` returns every stored fact about it.
+  service): `probe` returns every stored fact about it. Several entity names
+  = union (facts about any of them, the `entities` param / repeated CLI
+  names); `reason` is the opposite shape (facts about ALL of them).
 - **Search** for topic queries. Short noun phrases — `deploy workflow`,
   `db path` — not full sentences.
 - **Brief** when starting a task or briefing a fresh context (e.g. a
