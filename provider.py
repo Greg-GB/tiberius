@@ -33,7 +33,7 @@ FACT_STORE_SCHEMA = {
         "Deep structured memory with algebraic reasoning. Use alongside the memory tool — memory for always-on "
         "context, fact_store for deep recall and compositional queries.\n\nACTIONS (simple → powerful):\n"
         "• add — Store a fact the user would expect you to remember. When a near-identical existing fact exists it is returned as possible_duplicates with a note — remove the older one if it's a true duplicate.\n• search — Keyword lookup ('editor config', 'deploy process').\n"
-        "• probe — Entity recall: ALL facts about a person/thing.\n• related — What connects to an entity? Structural adjacency.\n"
+        "• probe — Entity recall: ALL facts about a person/thing. Pass several via the 'entities' param for the union (facts about ANY of them); 'reason' is the ALL-of-them shape.\n• related — What connects to an entity? Structural adjacency.\n"
         "• brief — One-call context pack for a task: search + entity probe, token-budgeted (whole facts only, "
         "default 300) with a window marker (how many more matches exist). Use it when starting a task instead of "
         "several separate recall calls.\n"
