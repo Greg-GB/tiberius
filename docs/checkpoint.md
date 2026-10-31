@@ -1,6 +1,6 @@
 # Session checkpoint (structured compaction handoff)
 
-Status: unreleased — candidate. One standalone doc per branch (no roadmap index).
+Status: **shipped** — v0.6.6 (2026-10-31). One standalone doc per branch (no roadmap index).
 
 ## Problem
 
