@@ -25,17 +25,22 @@ Write paths set it:
 
 | writer | origin value |
 |---|---|
-| Hermes provider | runtime-supplied tag (profile + session short id) |
-| CLI | `--origin` flag, default `cli` |
-| skill-sync | `skill-sync` |
-| OpenCode MCP | `opencode` (+ agent name if provided) |
+| Hermes provider | runtime tag `<profile>:<first 8 hex of the session id>` (e.g. `default:caa1b2c3`) — stamped on every provider write: add, add_batch, checkpoint, supersede replacement, auto-extraction, memory-write mirror |
+| CLI | `--origin` flag on `add`/`add-batch`/`supersede`/`extract`/`checkpoint set`, default `cli` |
+| skill-sync | `skill-sync` (hardcoded in the shared sync function, so in-process and CLI runs agree) |
+| OpenCode plugin | static `opencode` — appended to the `add`, `add-batch`, `supersede` and `extract` argvs; the tool context has no agent name, so the value is the plain writer id |
 
-Read paths — same one-clause-set pattern as the category filters:
+Read paths — same one-clause pattern as the category filters:
 
-- `search`/`brief`: `origin` (include) + `exclude_origin` (exclude), applied
-  in `_fts_candidates`; entity paths apply the same clause.
-- `list`: `--origin` / `--exclude-origin`.
+- `search`/`brief`/`probe`/`related`/`reason`/`list`: `origin` (include) +
+  `exclude_origin` (exclude). The FTS pool clause lives in `_fts_candidates`;
+  the entity paths apply the same clause in the shared `_rows_by_ids` fetch
+  (plus the `related` hop check). `match_count` takes the same parameters so
+  the `total` marker always describes the filtered pool.
+- `exclude_origin` is NULL-safe — `origin IS NULL OR origin != ?` — so a
+  writer exclusion never drops legacy rows whose origin is unknown.
 - `stats`: per-origin breakdown (count per origin, `null` bucket for legacy).
+- `show`/`get_fact` and `list` rows carry the `origin` field for audit.
 
 `origin` is free-form text — no enum, same reason as categories: writers
 appear over time and an enum would forbid filtering on the newest one.
@@ -48,10 +53,18 @@ appear over time and an enum would forbid filtering on the newest one.
 - No cross-box sync or consistency protocol.
 - No per-origin trust adjustment.
 
-## Tests planned
+## Tests
 
-- add via provider/CLI sets origin; legacy rows read as `null` bucket.
-- search `origin` include / `exclude_origin` exclude, entity path too.
-- `list --origin` filter; `stats` breakdown counts (including `null`).
-- `add_batch` threads origin; migration on a pre-columns DB.
-- OpenCode argv pin for the flag.
+- store: migration adds the column to a pre-columns DB; `add_fact` stamps
+  origin (legacy rows stay `null`); `add_facts` threads origin; `list_facts`
+  origin include / NULL-safe exclude; `stats` `by_origin` with the `null`
+  bucket.
+- retrieval: `search` origin include / exclude (legacy kept); `match_count`
+  agrees on the filtered pool; the `probe` entity path applies the clause.
+- brief: the pool and the `total` marker follow the origin filter.
+- CLI: `add` defaults to `cli` (flag overrides); `list`/`search` filters;
+  `stats` breakdown.
+- provider (Hermes-only suite): schema carries both parameters; add and
+  add_batch stamp the runtime tag; search round-trips the filter.
+- OpenCode: argv pin for `--origin opencode` on `add` (plus the existing
+  `add-batch`/`supersede`/`extract` pins updated).

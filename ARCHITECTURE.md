@@ -10,7 +10,7 @@ AGENTS.md lists the hard invariants; this file explains them.
 |---|---|---|
 | `holographic.py` | HRR math: phase-encoded vectors, bind/unbind/bundle, blob (de)serialization | numpy (optional) |
 | `store.py` | SQLite schema, `MemoryStore` (shared connection), entity extraction/resolution, `extract_statements` | stdlib only |
-| `retrieval.py` | `FactRetriever`: search (with `categories`/`exclude_category` pool filters) / probe (single entity or N-entity union via `entities`) / related / reason / contradict | store, holographic |
+| `retrieval.py` | `FactRetriever`: search (with `categories`/`exclude_category`/`origin` pool filters) / probe (single entity or N-entity union via `entities`) / related / reason / contradict | store, holographic |
 | `brief.py` | `brief()`: token-budgeted context pack — search ∪ probe, dedupe, tiered rank, budget fill; harness-free, wrapped by the CLI subcommand, the OpenCode tool, and the Hermes provider action | store, retrieval |
 | `drift.py` | `drift()`: two-sided plan/state pack — exact tag+entity plan query, recency-ranked state window, overlap-coefficient echo markers; harness-free, wrapped by the CLI subcommand, the OpenCode tool, and the Hermes provider action | store, retrieval, brief |
 | `provider.py` | Hermes `MemoryProvider` adapter (in-process) | Hermes core + all of the above |
@@ -257,6 +257,12 @@ comparison; `search`/`brief` window the candidate pool, not the results
 `possible_duplicates` — near-identical prior facts surfaced via the shared
 `FactRetriever.find_duplicates` check (raw token Jaccard ≥ 0.5 over the FTS
 top-5, trust-independent); report-only, the caller removes if it agrees.
+Provenance (`docs/provenance.md`): every fact records its writer in
+`facts.origin` (the provider's `profile:session` runtime tag, `cli`,
+`skill-sync` or `opencode`; legacy rows are `NULL`). All recall commands take
+`--origin` / `--exclude-origin` (the exclude is NULL-safe — it keeps legacy
+rows); write commands take `--origin` (default `cli`); `stats` reports the
+per-origin breakdown and `show`/`list` rows carry the field.
 
 **Supplemental output pattern.** Response fields beyond the primary result (e.g.
 `add`'s `possible_duplicates`) ship as a three-piece set: (1) **omitted when empty**
