@@ -4,10 +4,11 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](pyproject.toml)
 [![Tests](https://github.com/Greg-GB/tiberius/actions/workflows/tests.yml/badge.svg)](.github/workflows/tests.yml)
 
-Local SQLite memory engine: structured facts, skill retrieval, FTS5 search, entity graph, trust
-scoring, and HRR-based compositional retrieval. Harness-agnostic core with one adapter per
-harness — **no network, no service**: every harness runs the engine locally against its own
-DB file.
+Local SQLite memory engine: structured facts with trust scoring and
+feedback training, FTS5 search, entity-graph compositional retrieval with
+HRR vector reranking, and a skill catalog. Harness-agnostic core with one
+adapter per harness — **no network, no service**: every harness runs the
+engine locally against its own DB file.
 
 Tiberius is a fork of [hermes-plugin-holographic](https://github.com/NousResearch/hermes-plugin-holographic)
 (Nous Research, MIT) — the HRR core is kept, but it is decoupled from a single harness: it runs
@@ -95,10 +96,13 @@ Files:
 - **Harness adapters**: `provider.py` (Hermes, in-process), `cli.py` (generic JSON CLI),
   `opencode/` (native OpenCode V2 plugin with per-turn context injection — on by default —
   and session-end extraction).
-- **Full operation parity**: every adapter exposes the same surface — search / probe /
-  show / entities / drift / related / reason, plus CRUD and hygiene (`add`,
-  `add_batch`, `update`, `remove`, `supersede`, `merge`, `hygiene`, `list`, `stats`, `contradict`,
-  `feedback`) and session handoff (`checkpoint`, `docs/checkpoint.md`). `list`,
+- **Operation parity**: every adapter exposes the same recall surface
+  (search / probe / show / entities / drift / related / reason) and the
+  same write surface (`add`, `add_batch`, `update`, `remove`, `supersede`,
+  `merge`, `list`, `stats`, `feedback`) plus session handoff (`checkpoint`,
+  `docs/checkpoint.md`). The two store-maintenance scans (`hygiene`,
+  `contradict`) are CLI + Hermes-provider surfaces — OpenCode deliberately
+  has no per-session maintenance tools. `list`,
   `search`, and `brief` take `--since` time filtering (`created_at` at or
   after; `docs/since.md`) and `--categories` / `--exclude-category` pool
   filtering (`docs/search-categories.md`). Every adapter also has
@@ -151,8 +155,8 @@ Files:
   code — the guard test pins the shape (`docs/episodic-convention.md`).
 - **Quality gates**: the core test suite (runs anywhere — `python -m pytest -q`),
   the plugin unit tests, Hermes-provider tests (need a Hermes environment), and
-  a 19-query golden recall eval (`eval/`) that any retrieval change must not
-  regress (fixture baseline recall@1 19/19, recall@3 19/19).
+  a 19-query golden recall eval (`eval/`) as the regression check for retrieval
+  changes (current fixture baseline: recall@1 18/19, recall@3 19/19).
 
 ## Prerequisites
 
@@ -272,8 +276,8 @@ process, and nothing crosses the network. **Runtime-verified against live
 OpenCode 2.0.28** (2026-10-26; `memory_brief` 2026-10-29;
 `memory_drift` / `memory_show` / `memory_entities` 2026-10-30;
 `memory_search` / `memory_brief` `since` windows 2026-10-30): the
-thirteen tools, context injection, and session-end extraction were observed
-working end-to-end; the
+tool set of the time (thirteen, now eighteen), context injection, and
+session-end extraction were observed working end-to-end; the
 verified payload shapes are documented in
 [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
@@ -470,7 +474,8 @@ skills directory (or referencing it from your agent instructions).
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) — the one rule that matters: retrieval
-changes must not regress the golden eval (fixture baseline recall@1 19/19, recall@3 19/19).
+changes must not regress the golden eval (current fixture baseline:
+recall@1 18/19, recall@3 19/19).
 AI coding agents: [AGENTS.md](AGENTS.md). Security policy and what counts as a
 vulnerability in a local-memory project: [SECURITY.md](SECURITY.md).
 
@@ -479,7 +484,7 @@ vulnerability in a local-memory project: [SECURITY.md](SECURITY.md).
 The core test suite needs nothing beyond Python 3.11+ and pytest; provider
 tests additionally import Hermes core. Retrieval
 quality is gated by the golden eval: `python eval/run_eval.py` runs the committed
-synthetic fixture (fixture baseline recall@1 19/19, recall@3 19/19); pass a DB path to
+synthetic fixture (current baseline: recall@1 18/19, recall@3 19/19); pass a DB path to
 eval against your own live store: `python eval/run_eval.py /path/to/your.db`. CI runs
 the core suite + fixture eval on every push. Run it with a Python that has numpy —
 without it, `probe`/`related`/`reason` silently fall back to FTS5 keyword search and
