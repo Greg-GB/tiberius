@@ -192,7 +192,7 @@ def _skill_sync(args: argparse.Namespace, store: MemoryStore) -> dict:
         tags = ", ".join([f"skill-id:{sk['name']}", f"skill-dir:{sk['dir']}"] + sk["triggers"])
         existing = by_id.get(sk["name"])
         if existing is None:
-            fact_id = store.add_fact(content, category="skill", tags=tags)
+            fact_id = store.add_fact(content, category="skill", tags=tags, origin="skill-sync")
             by_id[sk["name"]] = {"fact_id": fact_id, "content": content, "tags": tags}
             added.append({"skill": sk["name"], "fact_id": fact_id})
         elif existing["content"] == content and existing["tags"] == tags:
@@ -231,6 +231,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--category")
     s.add_argument("--categories", nargs="+", help="category IN list (takes precedence over --category)")
     s.add_argument("--exclude-category", help="drop one category from the candidate pool")
+    s.add_argument("--origin", help="only facts written by this origin (writer tag)")
+    s.add_argument("--exclude-origin", help="drop facts written by this origin (legacy NULL-origin rows kept)")
     s.add_argument("--min-trust", type=float, default=0.3)
     s.add_argument("--since", help="only facts created at or after: ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w)")
     s = sub.add_parser("brief", help="token-budgeted context pack: search ∪ probe, floored, budget-filled")
@@ -241,6 +243,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--category", help="restrict to one fact category")
     s.add_argument("--categories", nargs="+", help="category IN list (takes precedence over --category)")
     s.add_argument("--exclude-category", help="drop one category from the search pool")
+    s.add_argument("--origin", help="only facts written by this origin (writer tag)")
+    s.add_argument("--exclude-origin", help="drop facts written by this origin (legacy NULL-origin rows kept)")
     s.add_argument("--min-trust", type=float, default=0.3, help="min trust for the search pool (default 0.3)")
     s.add_argument("--since", help="window the search pool to facts created at or after: ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w)")
     s.add_argument("--skills", type=int, default=2, help="max skill-lane entries (default 2)")
@@ -252,15 +256,21 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--support", type=float, default=0.15, help="min overlap coefficient for a state echo to count (default 0.15)")
     s = sub.add_parser("probe", help="all facts linked to one entity (several names: union, any of them)")
     s.add_argument("entity", nargs="+", help="one or more entity names (several = union: facts linked to any of them; the OR counterpart of 'reason')")
+    s.add_argument("--origin", help="only facts written by this origin (writer tag)")
+    s.add_argument("--exclude-origin", help="drop facts written by this origin (legacy NULL-origin rows kept)")
     s = sub.add_parser("show", help="read one fact by id (content, entities, trust, counts)")
     s.add_argument("fact_id", type=int)
     s = sub.add_parser("entities", help="list entities with linked-fact counts and aliases (entity discovery)")
     s.add_argument("--top", type=int, default=20)
     s = sub.add_parser("related", help="one hop: facts sharing any of the entity's entities")
     s.add_argument("entity")
+    s.add_argument("--origin", help="only facts written by this origin (writer tag)")
+    s.add_argument("--exclude-origin", help="drop facts written by this origin (legacy NULL-origin rows kept)")
     s = sub.add_parser("reason", help="compositional: facts linked to ALL entities")
     s.add_argument("entities", nargs="+")
     s.add_argument("--top", type=int, default=5)
+    s.add_argument("--origin", help="only facts written by this origin (writer tag)")
+    s.add_argument("--exclude-origin", help="drop facts written by this origin (legacy NULL-origin rows kept)")
     s = sub.add_parser("contradict", help="pairs of entity-sharing facts in tension (store hygiene scan)")
     s.add_argument("--category")
     s.add_argument("--threshold", type=float, default=0.3)
@@ -269,7 +279,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("content")
     s.add_argument("--category", default="general")
     s.add_argument("--tags", default="")
+    s.add_argument("--origin", default="cli", help="writer tag recorded on the row (default: cli)")
     s = sub.add_parser("add-batch", help="store many facts from a JSON array on stdin (strings or {content, category?, tags?} objects)")
+    s.add_argument("--origin", default="cli", help="writer tag stamped on every row the batch adds (default: cli)")
     s = sub.add_parser("feedback", help="train trust: fact_id + helpful|unhelpful (fact_id may be a comma list: 5,6,7)")
     s.add_argument("fact_id", help="fact id, or comma-separated ids for a batch (5 or 5,6,7)")
     s.add_argument("action", choices=["helpful", "unhelpful"])
@@ -295,11 +307,14 @@ def main(argv: list[str] | None = None) -> int:
                    help="ordering: trust (default), retrieval (most-recalled first), recent (newest first), stale (oldest-updated first)")
     s.add_argument("--include-superseded", action="store_true",
                    help="include superseded (hidden from recall) rows")
+    s.add_argument("--origin", help="only facts written by this origin (writer tag)")
+    s.add_argument("--exclude-origin", help="drop facts written by this origin (legacy NULL-origin rows kept)")
     s = sub.add_parser("supersede", help="replace a fact; the old row stays readable via show (docs/supersede.md)")
     s.add_argument("fact_id", type=int)
     s.add_argument("content", help="the replacement statement (one fact, present tense)")
     s.add_argument("--category")
     s.add_argument("--tags", help="comma-separated tags for the replacement")
+    s.add_argument("--origin", default="cli", help="writer tag recorded on the replacement row (default: cli)")
     sub.add_parser("stats", help="store orientation: totals, category mix, trust buckets, stale count")
     s = sub.add_parser("checkpoint", help="session handoff: one active checkpoint per session (docs/checkpoint.md)")
     csub = s.add_subparsers(dest="cp_op", required=True)
@@ -308,7 +323,8 @@ def main(argv: list[str] | None = None) -> int:
     cs.add_argument("facts", nargs="+", metavar="FACT")
     csub.add_parser("show", help="read the session's active checkpoint").add_argument("session")
     csub.add_parser("clear", help="delete the session's checkpoint").add_argument("session")
-    sub.add_parser("extract", help="regex-extract facts from a JSON message list on stdin")
+    s = sub.add_parser("extract", help="regex-extract facts from a JSON message list on stdin")
+    s.add_argument("--origin", default="cli", help="writer tag recorded on extracted rows (default: cli)")
 
     a = p.parse_args(argv)
     if a.cmd in ("search", "brief", "reason", "contradict", "list"):
@@ -326,7 +342,8 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(brief(a.query, ret, store, budget=a.budget, floor=a.floor,
                                    top=a.top, category=a.category, min_trust=a.min_trust,
                                    since=a.since, categories=a.categories,
-                                   exclude_category=a.exclude_category, skills=a.skills)))
+                                   exclude_category=a.exclude_category, origin=a.origin,
+                                   exclude_origin=a.exclude_origin, skills=a.skills)))
             return 0
         if a.cmd == "drift":
             a.budget, a.top, a.support = max(1, a.budget), max(1, a.top), max(0.0, a.support)
@@ -336,11 +353,13 @@ def main(argv: list[str] | None = None) -> int:
         total = None
         if a.cmd == "search":
             rows = ret.search(a.query, category=a.category, min_trust=a.min_trust, limit=a.top, since=a.since,
-                              categories=a.categories, exclude_category=a.exclude_category)
+                              categories=a.categories, exclude_category=a.exclude_category,
+                              origin=a.origin, exclude_origin=a.exclude_origin)
             total = ret.match_count(a.query, category=a.category, min_trust=a.min_trust, since=a.since,
-                                    categories=a.categories, exclude_category=a.exclude_category)
+                                    categories=a.categories, exclude_category=a.exclude_category,
+                                    origin=a.origin, exclude_origin=a.exclude_origin)
         elif a.cmd == "probe":
-            rows = ret.probe(a.entity, limit=10)
+            rows = ret.probe(a.entity, limit=10, origin=a.origin, exclude_origin=a.exclude_origin)
         elif a.cmd == "show":
             fact = store.get_fact(a.fact_id)
             if fact is None:
@@ -349,13 +368,13 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({"fact": fact}))
             return 0
         elif a.cmd == "related":
-            rows = ret.related(a.entity, limit=10)
+            rows = ret.related(a.entity, limit=10, origin=a.origin, exclude_origin=a.exclude_origin)
         elif a.cmd == "reason":
-            rows = ret.reason(a.entities, limit=a.top)
+            rows = ret.reason(a.entities, limit=a.top, origin=a.origin, exclude_origin=a.exclude_origin)
         elif a.cmd == "contradict":
             rows = ret.contradict(category=a.category, threshold=a.threshold, limit=a.top)
         elif a.cmd == "add":
-            new_id = store.add_fact(a.content, category=a.category, tags=a.tags)
+            new_id = store.add_fact(a.content, category=a.category, tags=a.tags, origin=a.origin)
             out: dict = {"fact_id": new_id}
             dups = ret.find_duplicates(a.content, new_id)
             if dups:  # supplemental field: omitted when empty, note when present (see ARCHITECTURE.md)
@@ -368,7 +387,7 @@ def main(argv: list[str] | None = None) -> int:
             items = json.loads(sys.stdin.read())
             if not isinstance(items, list) or not items:
                 raise ValueError("add-batch expects a non-empty JSON array on stdin")
-            print(json.dumps(store.add_facts(items)))
+            print(json.dumps(store.add_facts(items, origin=a.origin)))
             return 0
         elif a.cmd == "feedback":
             ids = [int(x) for x in str(a.fact_id).split(",") if x.strip()]
@@ -399,7 +418,7 @@ def main(argv: list[str] | None = None) -> int:
         elif a.cmd == "checkpoint":
             tag = f"checkpoint:{a.session}"
             if a.cp_op == "set":
-                print(json.dumps(store.set_checkpoint(a.session, a.facts)))
+                print(json.dumps(store.set_checkpoint(a.session, a.facts, origin="cli")))
                 return 0
             if a.cp_op == "show":
                 rows = store.list_by_tag(tag)
@@ -411,7 +430,7 @@ def main(argv: list[str] | None = None) -> int:
         elif a.cmd == "supersede":
             try:
                 print(json.dumps(store.supersede(a.fact_id, a.content,
-                                                 category=a.category, tags=a.tags)))
+                                                 category=a.category, tags=a.tags, origin=a.origin)))
                 return 0
             except KeyError as exc:
                 print(json.dumps({"error": f"fact_id {a.fact_id} not found"}))  # same contract as remove/update
@@ -424,7 +443,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         elif a.cmd == "list":
             rows = store.list_facts(category=a.category, min_trust=a.min_trust, limit=a.top, since=a.since,
-                                    order=a.order, include_superseded=a.include_superseded)
+                                    order=a.order, include_superseded=a.include_superseded,
+                                    origin=a.origin, exclude_origin=a.exclude_origin)
         elif a.cmd == "entities":
             # Output contract (docs/entities.md): a bare JSON array — one object per entity,
             # not the {"results": ...} wrapper the fact-browsing commands use.
@@ -448,7 +468,7 @@ def main(argv: list[str] | None = None) -> int:
                     continue
                 for statement, category in extract_statements(text):
                     try:
-                        store.add_fact(statement, category=category)
+                        store.add_fact(statement, category=category, origin=a.origin)
                         added += 1
                     except Exception:
                         pass  # UNIQUE content collision or similar — extraction is best-effort

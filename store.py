@@ -213,6 +213,14 @@ class MemoryStore:
                     add_column_if_missing(self._conn, "facts", col, col_def)
                 except ImportError:
                     self._conn.execute(f"ALTER TABLE facts ADD COLUMN {col_def}")
+        # v0.6.8: provenance (docs/provenance.md): which writer wrote the fact. Legacy
+        # rows stay NULL = unknown. Same double-check shape as hrr_vector.
+        if "origin" not in fact_cols:
+            try:
+                from hermes_cli.sqlite_util import add_column_if_missing
+                add_column_if_missing(self._conn, "facts", "origin", "origin TEXT")
+            except ImportError:
+                self._conn.execute("ALTER TABLE facts ADD COLUMN origin TEXT")
         self._conn.commit()
         self._backfill_vectors()
 
@@ -241,29 +249,32 @@ class MemoryStore:
         self._conn.commit()
         return cur
 
-    def add_fact(self, content: str, category: str = "general", tags: str = "") -> int:
+    def add_fact(self, content: str, category: str = "general", tags: str = "", origin: str | None = None) -> int:
         """Insert a fact and return its fact_id; on duplicate content (UNIQUE) return the existing fact_id untouched.
-        Links extracted entities and rebuilds the category bank."""
+        Links extracted entities and rebuilds the category bank. origin (docs/provenance.md) records the writer;
+        None keeps the row in the legacy 'unknown' bucket."""
         with self._lock:
             content = content.strip()
             if not content:
                 raise ValueError("content must not be empty")
             try:
-                fact_id: int = self._write("INSERT INTO facts (content, category, tags, trust_score) VALUES (?, ?, ?, ?)",
-                                           (content, category, tags, self.default_trust)).lastrowid  # type: ignore[assignment]
+                fact_id: int = self._write(
+                    "INSERT INTO facts (content, category, tags, trust_score, origin) VALUES (?, ?, ?, ?, ?)",
+                    (content, category, tags, self.default_trust, origin)).lastrowid  # type: ignore[assignment]
             except sqlite3.IntegrityError:
                 return int(self._one("SELECT fact_id FROM facts WHERE content = ?", (content,))["fact_id"])
             self._link_entities(fact_id, content)
             self._compute_hrr_vector(fact_id, content)
             return fact_id
 
-    def add_facts(self, items: list) -> dict:
+    def add_facts(self, items: list, origin: str | None = None) -> dict:
         """Batch add: a list of content strings or {content, category?, tags?} objects.
         Validates every item first, then reuses add_fact per item (entity linking + HRR
         rebuild included), committing per item in order. A bad item (wrong type, empty
         content) raises ValueError naming the index and nothing executes. Duplicate
         content — already in the store or repeated within the batch (UNIQUE) — returns
         the existing fact_id, counted in 'duplicates' and still listed in 'fact_ids'.
+        origin is stamped on every row the batch adds (docs/provenance.md).
         Returns {"added", "duplicates", "fact_ids"}."""
         prepared: list[tuple[str, str, str]] = []
         for i, item in enumerate(items):
@@ -284,7 +295,7 @@ class MemoryStore:
         fact_ids: list[int] = []
         dup = 0
         for content, category, tags in prepared:
-            fid = self.add_fact(content, category=category, tags=tags)
+            fid = self.add_fact(content, category=category, tags=tags, origin=origin)
             if fid in fact_ids or fid in existing:
                 dup += 1
             fact_ids.append(fid)
@@ -356,11 +367,12 @@ class MemoryStore:
                 self._write("DELETE FROM facts WHERE fact_id IN (" + ",".join("?" * len(ids)) + ")", ids)
             return len(ids)
 
-    def set_checkpoint(self, session: str, facts: list[str]) -> dict:
+    def set_checkpoint(self, session: str, facts: list[str], origin: str | None = None) -> dict:
         """Replace the session's active checkpoint: delete that session's existing
         checkpoint facts, then batch-add the new ones as category "checkpoint"
         tagged "checkpoint:<session>". One active checkpoint per session — the
-        latest set is the whole story (docs/checkpoint.md). Returns the add_facts
+        latest set is the whole story (docs/checkpoint.md). origin stamps the new
+        rows (the calling writer; docs/provenance.md). Returns the add_facts
         result plus {session, replaced}."""
         if not 1 <= len(facts) <= 8:
             raise ValueError("checkpoint set takes 1-8 facts — a handoff, not a backup")
@@ -372,13 +384,13 @@ class MemoryStore:
         session = session.strip()
         tag = f"checkpoint:{session}"
         replaced = self.delete_by_tag(tag)
-        res = self.add_facts([{"content": f, "category": "checkpoint", "tags": tag} for f in facts])
+        res = self.add_facts([{"content": f, "category": "checkpoint", "tags": tag} for f in facts], origin=origin)
         res["session"] = session
         res["replaced"] = replaced
         return res
 
     def supersede(self, fact_id: int, content: str, category: str | None = None,
-                  tags: str | None = None) -> dict:
+                  tags: str | None = None, origin: str | None = None) -> dict:
         """Replace a fact: insert a replacement (normal add semantics — entities
         are extracted from the new content) and point the old row at it.
         Superseded rows are hidden from recall (search/probe/related/brief/list)
@@ -402,7 +414,7 @@ class MemoryStore:
         if dup is not None:
             raise ValueError(f"supersede content matches fact {dup['fact_id']} exactly — "
                              f"remove that fact or use 'update' instead")
-        new_id = self.add_fact(content, category=category or "general", tags=tags or "")
+        new_id = self.add_fact(content, category=category or "general", tags=tags or "", origin=origin)
         if new_id == fact_id:
             # Race: the target's own content changed to ours between the dup check
             # and the insert (the UNIQUE path returned the target itself).
@@ -414,14 +426,17 @@ class MemoryStore:
         return {"superseded_fact_id": fact_id, "new_fact_id": new_id, "superseded_at": ts}
 
     def list_facts(self, category: str | None = None, min_trust: float = 0.0, limit: int = 50,
-                   since: str | None = None, order: str = "trust", include_superseded: bool = False) -> list[dict]:
+                   since: str | None = None, order: str = "trust", include_superseded: bool = False,
+                   origin: str | None = None, exclude_origin: str | None = None) -> list[dict]:
         """Browse facts, optionally filtered by category / min trust / since
         (ISO date/datetime UTC or relative 30m/2h/7d/2w — facts created at or
         after it). Since filters on created_at, which only the write path
         sets — updates don't move it. Order: trust (default, trust_score DESC),
         retrieval (retrieval_count DESC), recent (created_at DESC), stale
         (updated_at ASC). Superseded rows are hidden by default;
-        include_superseded shows them (docs/supersede.md)."""
+        include_superseded shows them (docs/supersede.md). origin includes only
+        one writer's rows; exclude_origin drops one writer but keeps legacy
+        NULL-origin rows (docs/provenance.md)."""
         order_map = {"trust": "trust_score DESC", "retrieval": "retrieval_count DESC",
                      "recent": "created_at DESC", "stale": "updated_at ASC"}
         if order not in order_map:
@@ -430,11 +445,16 @@ class MemoryStore:
             category_clause = "AND category = ? " if category is not None else ""
             since_clause = "AND created_at >= ? " if since is not None else ""
             superseded_clause = "" if include_superseded else "AND superseded_by IS NULL "
+            origin_clause = "AND origin = ? " if origin is not None else ""
+            exclude_origin_clause = "AND (origin IS NULL OR origin != ?) " if exclude_origin else ""
             params = [min_trust] + ([category] if category is not None else []) \
-                     + ([_parse_since(since)] if since is not None else []) + [limit]
+                     + ([_parse_since(since)] if since is not None else []) \
+                     + ([origin] if origin is not None else []) \
+                     + ([exclude_origin] if exclude_origin else []) + [limit]
             sql = (f"SELECT fact_id, content, category, tags, trust_score, retrieval_count, helpful_count, "
-                   f"created_at, updated_at, superseded_by, superseded_at "
+                   f"created_at, updated_at, superseded_by, superseded_at, origin "
                    f"FROM facts WHERE trust_score >= ? {superseded_clause}{category_clause}{since_clause}"
+                   f"{origin_clause}{exclude_origin_clause}"
                    f"ORDER BY {order_map[order]} LIMIT ?")
             return [dict(r) for r in self._conn.execute(sql, params).fetchall()]
 
@@ -447,6 +467,8 @@ class MemoryStore:
             entities = self._one("SELECT COUNT(*) AS n FROM entities")["n"]
             by_category = {r["category"]: r["n"] for r in self._conn.execute(
                 "SELECT category, COUNT(*) AS n FROM facts GROUP BY category")}
+            by_origin = {"null" if r["origin"] is None else r["origin"]: r["n"] for r in self._conn.execute(
+                "SELECT origin, COUNT(*) AS n FROM facts GROUP BY origin")}
             trust_buckets = {}
             for label, lo, hi in (("0.0-0.3", 0.0, 0.3), ("0.3-0.5", 0.3, 0.5),
                                   ("0.5-0.7", 0.5, 0.7), ("0.7+", 0.7, 1.01)):
@@ -457,6 +479,7 @@ class MemoryStore:
             stale = self._one(
                 "SELECT COUNT(*) AS n FROM facts WHERE trust_score < 0.5 AND updated_at <= datetime('now', '-30 days')")["n"]
             return {"total": total, "entities": entities, "by_category": by_category,
+                    "by_origin": by_origin,
                     "trust_buckets": trust_buckets, "stale_count": stale}
 
     def get_fact(self, fact_id: int) -> dict | None:
@@ -467,7 +490,7 @@ class MemoryStore:
         with self._lock:
             row = self._one(
                 "SELECT fact_id, content, category, tags, trust_score, retrieval_count, "
-                "helpful_count, created_at, updated_at, superseded_by, superseded_at "
+                "helpful_count, created_at, updated_at, superseded_by, superseded_at, origin "
                 "FROM facts WHERE fact_id = ?", (fact_id,))
             if row is None:
                 return None

@@ -65,6 +65,7 @@ def brief(query: str, ret: FactRetriever, store: MemoryStore, *,
           category: str | None = None, min_trust: float = 0.3,
           since: str | None = None,
           categories: list[str] | None = None, exclude_category: str | None = None,
+          origin: str | None = None, exclude_origin: str | None = None,
           skills: int = 2) -> dict:
     """Token-budgeted context pack for a query: search ∪ probe → dedupe →
     floor → tiered rank → budget fill → optional skill lane.
@@ -77,16 +78,19 @@ def brief(query: str, ret: FactRetriever, store: MemoryStore, *,
     the same since window (created_at at or after), so the marker describes
     the window, not the whole store."""
     pool = ret.search(query, category=category, min_trust=min_trust, limit=top, since=since,
-                      categories=categories, exclude_category=exclude_category)
+                      categories=categories, exclude_category=exclude_category,
+                      origin=origin, exclude_origin=exclude_origin)
     total = ret.match_count(query, category=category, min_trust=min_trust, since=since,
-                            categories=categories, exclude_category=exclude_category)
+                            categories=categories, exclude_category=exclude_category,
+                            origin=origin, exclude_origin=exclude_origin)
     # Checkpoint facts are session state, not durable knowledge: they are read via
     # checkpoint show, never injected by a pack (docs/checkpoint.md). The subtraction
     # keeps 'total' describing the same pool the caller sees (house invariant from
     # docs/search-categories.md).
     pool = [f for f in pool if f.get("category") != "checkpoint"]
     total -= ret.match_count(query, category="checkpoint", min_trust=min_trust, since=since,
-                             categories=categories, exclude_category=exclude_category)
+                             categories=categories, exclude_category=exclude_category,
+                             origin=origin, exclude_origin=exclude_origin)
     pool_ids = {f["fact_id"] for f in pool}
 
     with store._lock:  # shared-connection rule: the entities scan touches the connection directly
@@ -95,7 +99,7 @@ def brief(query: str, ret: FactRetriever, store: MemoryStore, *,
     entity_only: list[dict] = []
     seen_entity: set[int] = set()
     for entity in entities:
-        for f in ret.probe(entity, category=category, limit=top):
+        for f in ret.probe(entity, category=category, limit=top, origin=origin, exclude_origin=exclude_origin):
             if f.get("category") == "checkpoint":
                 # Session state is never injected by a pack (docs/checkpoint.md) —
                 # same rule as the pool tier above. ponytail: post-filter after

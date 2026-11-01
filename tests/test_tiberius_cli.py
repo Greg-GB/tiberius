@@ -411,3 +411,48 @@ def test_cli_supersede_errors(tmp_path, capsys):
     assert rc == 1
     assert "content" in out["error"]
     assert len(_run(capsys, "--db", db, "list", "--include-superseded")["results"]) == 1
+
+
+def test_cli_add_origin_defaults_to_cli(tmp_path, capsys):
+    """docs/provenance.md: CLI writes are stamped 'cli' by default."""
+    db = str(tmp_path / "m.db")
+    fid = _run(capsys, "--db", db, "add", "The relay keeps the default writer tag.")["fact_id"]
+    out = _run(capsys, "--db", db, "show", str(fid))
+    assert out["fact"]["origin"] == "cli"
+    fid2 = _run(capsys, "--db", db, "add", "The relay keeps a named writer tag.",
+                "--origin", "opencode")["fact_id"]
+    out = _run(capsys, "--db", db, "show", str(fid2))
+    assert out["fact"]["origin"] == "opencode"
+
+
+def test_cli_list_origin_filters(tmp_path, capsys):
+    """list --origin includes one writer's rows; --exclude-origin drops one
+    writer but keeps legacy NULL-origin rows."""
+    from hermes_plugin_tiberius.store import MemoryStore
+    db = str(tmp_path / "m.db")
+    store = MemoryStore(db, hrr_dim=64)
+    store.add_fact("The relay backup plan alpha.")  # legacy: no writer stamped
+    store.close()
+    _run(capsys, "--db", db, "add", "The relay backup plan beta.", "--origin", "cli")
+    _run(capsys, "--db", db, "add", "The relay backup plan gamma.", "--origin", "opencode")
+    out = _run(capsys, "--db", db, "list", "--origin", "cli")
+    assert out["count"] == 1 and out["results"][0]["origin"] == "cli"
+    out = _run(capsys, "--db", db, "list", "--exclude-origin", "cli")
+    assert out["count"] == 2  # legacy NULL row + opencode row
+    assert {f["origin"] for f in out["results"]} == {None, "opencode"}
+
+
+def test_cli_search_origin_and_stats_breakdown(tmp_path, capsys):
+    """search --origin filters the pool (and 'total' agrees); stats reports
+    the per-origin breakdown with a 'null' bucket for legacy rows."""
+    from hermes_plugin_tiberius.store import MemoryStore
+    db = str(tmp_path / "m.db")
+    store = MemoryStore(db, hrr_dim=64)
+    store.add_fact("The relay service keeps route one.")  # legacy: no writer stamped
+    store.close()
+    _run(capsys, "--db", db, "add", "The relay service keeps route two.", "--origin", "cli")
+    out = _run(capsys, "--db", db, "search", "relay service route", "--origin", "cli")
+    assert out["total"] == 1 and out["count"] == 1
+    assert out["results"][0]["origin"] == "cli"
+    out = _run(capsys, "--db", db, "stats")
+    assert out["by_origin"] == {"null": 1, "cli": 1}

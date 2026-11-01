@@ -601,3 +601,65 @@ def test_supersede_replacement_carries_category_tags_old_row_untouched(tmp_path)
     for key in ("content", "category", "tags", "trust_score", "entities"):
         assert old_after[key] == old_before[key]
     store.close()
+
+
+def test_origin_migration_adds_column(tmp_path):
+    """docs/provenance.md: a pre-provenance database (created with the older
+    schema) gains the origin column on open; fresh databases already have it."""
+    from hermes_plugin_tiberius.store import _SCHEMA
+    db = str(tmp_path / "legacy.db")
+    conn = sqlite3.connect(db)
+    conn.executescript(_SCHEMA)
+    conn.close()
+    cols = {r[1] for r in sqlite3.connect(db).execute("PRAGMA table_info(facts)").fetchall()}
+    assert "origin" not in cols  # sanity: _SCHEMA predates the provenance migration
+    store = MemoryStore(db, hrr_dim=64)
+    cols = {r[1] for r in store._conn.execute("PRAGMA table_info(facts)").fetchall()}
+    assert "origin" in cols
+    store.close()
+
+
+def test_add_fact_stamps_origin_and_legacy_stays_null(tmp_path):
+    """Writers stamp origin on add; a row written without one stays in the
+    legacy 'unknown' (NULL) bucket, visible via get_fact."""
+    store = MemoryStore(str(tmp_path / "m.db"), hrr_dim=64)
+    legacy = store.add_fact("The relay service keeps the legacy route.")
+    stamped = store.add_fact("The relay service keeps the stamped route.", origin="cli")
+    assert store.get_fact(legacy)["origin"] is None
+    assert store.get_fact(stamped)["origin"] == "cli"
+    store.close()
+
+
+def test_add_facts_threads_origin_to_every_row(tmp_path):
+    """add_batch stamps the batch-level origin on every row it adds."""
+    store = MemoryStore(str(tmp_path / "m.db"), hrr_dim=64)
+    res = store.add_facts(["First batched row.", "Second batched row."], origin="opencode")
+    assert res["added"] == 2
+    for fid in res["fact_ids"]:
+        assert store.get_fact(fid)["origin"] == "opencode"
+    store.close()
+
+
+def test_list_facts_origin_include_exclude(tmp_path):
+    """origin includes one writer's rows only; exclude_origin drops one writer
+    but keeps legacy NULL-origin rows (NULL != 'x' is NULL, not true)."""
+    store = MemoryStore(str(tmp_path / "m.db"), hrr_dim=64)
+    legacy = store.add_fact("Legacy row about the backup plan.")
+    cli = store.add_fact("CLI row about the backup plan.", origin="cli")
+    oc = store.add_fact("Opencode row about the backup plan.", origin="opencode")
+    assert {r["fact_id"] for r in store.list_facts(origin="cli")} == {cli}
+    assert store.list_facts(origin="cli")[0]["origin"] == "cli"
+    assert {r["fact_id"] for r in store.list_facts(exclude_origin="cli")} == {legacy, oc}
+    store.close()
+
+
+def test_stats_by_origin_counts_with_null_bucket(tmp_path):
+    """stats reports the per-origin breakdown; legacy rows count under 'null'."""
+    store = MemoryStore(str(tmp_path / "m.db"), hrr_dim=64)
+    store.add_fact("Stats row with no writer recorded.")
+    store.add_fact("Stats row written by cli one.")
+    store.add_fact("Stats row written by cli two.", origin="cli")
+    store.add_fact("Stats row written by cli three.", origin="cli")
+    store.add_fact("Stats row written by opencode.", origin="opencode")
+    assert store.stats()["by_origin"] == {"null": 2, "cli": 2, "opencode": 1}
+    store.close()
