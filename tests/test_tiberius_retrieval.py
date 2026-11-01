@@ -684,3 +684,35 @@ def test_hygiene_threshold_args(tmp_path):
         assert rep["low_trust"]["count"] == 0
     finally:
         store.close()
+
+
+def test_pool_counter_counts_final_pool(tmp_path):
+    """docs/pool-counters.md: search() counts the FINAL candidate pool (after the
+    prefix fallback), zero pools included; find_duplicates (add-time detection
+    and the hygiene scan) bypasses the counter; a telemetry write failure never
+    fails the search."""
+    store = MemoryStore(str(tmp_path / "pools.db"))
+    r = FactRetriever(store)
+    try:
+        store.add_fact("Alice manages the SQLite deployment at Acme.")
+        store.add_fact("The Acme backup rotation runs nightly.")
+        assert store._conn.execute("SELECT COUNT(*) AS n FROM pool_stats").fetchone()["n"] == 0, \
+            "plain adds create no pool rows"
+        res = r.search("sqlite deployment")
+        assert len(res) >= 1
+        # exact pass misses the inflection, prefix fallback rescues: final pool > 0
+        assert r.search("backup") and r._last_pool >= 1
+        r.search("zzzqqqxxwvuu")  # nothing matches at all: zero pool
+        row = store._conn.execute("SELECT searches, zero_pools, sum_pool FROM pool_stats").fetchone()
+        assert row["searches"] == 3 and row["zero_pools"] == 1
+        assert row["sum_pool"] >= 1
+        # hygiene runs the duplicate detector over every live fact: no pool rows
+        r.hygiene()
+        assert store._conn.execute("SELECT searches FROM pool_stats").fetchone()["searches"] == 3
+        # telemetry failure never fails the search
+        def _boom(size):
+            raise RuntimeError("disk full")
+        store.record_pool = _boom
+        assert len(r.search("sqlite")) >= 1
+    finally:
+        store.close()

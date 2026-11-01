@@ -136,6 +136,12 @@ Files:
   big it is. The only auto-fix is `hygiene --apply orphans` (CLI), which
   prunes entities with zero linked facts; single-fact entities are just
   young. Every fact-level fix is made with the report in hand (`docs/hygiene.md`).
+- **Pool telemetry**: every FTS `search` counts its final candidate pool into a
+  daily row (`pool_stats` — one row per UTC day: searches, zero-pools,
+  pool-size aggregates). `stats` reports the trailing-7-day section
+  (`zero_pool_rate`, `avg_pool`, `max_pool`) — the production input for the
+  gated semantic-recall decision. No query text stored; add-time duplicate
+  detection and the hygiene scan don't count (`docs/pool-counters.md`).
 - **Quality gates**: the core test suite (runs anywhere — `python -m pytest -q`),
   the plugin unit tests, Hermes-provider tests (need a Hermes environment), and
   a 19-query golden recall eval (`eval/`) that any retrieval change must not

@@ -59,7 +59,9 @@ projects, and tools. Nothing leaves the machine.
   aliases before `probe` / `related` / `reason`: those actions take a name,
   and nothing else lists the names. A listing is not a recall.
 - **Stats** — orientation before hygiene: total facts, category mix, trust
-  buckets, and the stale count (low trust, old). Call it once at session
+  buckets, and the stale count (low trust, old). It also reports trailing-7-day
+  pool telemetry (`zero_pool_rate`, `avg_pool`, `max_pool`) — whether real
+  queries hit zero or thin FTS candidate pools. Call it once at session
   start or before `contradict` / bulk `remove` to size the sweep; browse the
   actual rows with `list` (`--order retrieval|recent|stale` for
   most-recalled / newest / oldest-updated).
