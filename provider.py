@@ -50,6 +50,10 @@ FACT_STORE_SCHEMA = {
         "• supersede — Replace a stale fact: inserts a replacement (normal add semantics) and hides the old one "
         "from recall; the old row stays readable via 'show' with superseded_by/superseded_at. 'content' is the "
         "replacement statement (must differ from every existing fact); 'category'/'tags' optional.\n"
+        "• merge — Fold one fact into another (near-duplicate resolution): 'from' is deleted and its content "
+        "concatenated onto 'into', trust = max, entities/tags = union — atomic, so no entity link is silently "
+        "dropped (the hazard of update+remove). 'into' is the surviving fact_id. Superseded facts can't "
+        "participate. Use 'update' afterwards if you want a rewritten single statement.\n"
         "• contradict — Memory hygiene: find facts making conflicting claims.\n• update/remove/list — CRUD operations.\n\n"
         "IMPORTANT: Before answering anything about the user, the environment, or the project, "
         "ALWAYS recall first (probe for entities, search for topics, reason across both) — "
@@ -58,7 +62,7 @@ FACT_STORE_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["add", "add_batch", "search", "probe", "show", "entities", "brief", "drift", "related", "reason", "contradict", "update", "remove", "list", "stats", "checkpoint", "supersede"]},
+            "action": {"type": "string", "enum": ["add", "add_batch", "search", "probe", "show", "entities", "brief", "drift", "related", "reason", "contradict", "update", "remove", "list", "stats", "checkpoint", "supersede", "merge"]},
             "content": {"type": "string", "description": "Fact content (required for 'add'; for 'supersede' the replacement statement)."},
             "query": {"type": "string", "description": "Search query (required for 'search'/'brief')."},
             "facts": {"type": "array", "minItems": 1,
@@ -75,6 +79,8 @@ FACT_STORE_SCHEMA = {
             "entity": {"type": "string", "description": "Entity name for 'probe'/'related'. 'probe' also accepts several names via 'entities' (union: any)."},
             "entities": {"type": "array", "items": {"type": "string"}, "description": "Entity names for 'reason' (facts linked to ALL of them). For 'probe': union — facts linked to ANY of them (takes precedence over 'entity')."},
             "fact_id": {"type": "integer", "description": "Fact ID for 'show'/'update'/'remove'/'supersede'."},
+            "from_fact_id": {"type": "integer", "description": "'merge' only: the fact to fold away (deleted; its content/entities/tags move onto 'into')."},
+            "into_fact_id": {"type": "integer", "description": "'merge' only: the surviving fact (its fact_id is returned with the merged row)."},
             "category": {"type": "string", "enum": ["user_pref", "project", "tool", "general"]},
             "categories": {"type": "array", "items": {"type": "string"},
                            "description": "Category IN-list for 'search'/'brief' (e.g. [\"user_pref\", \"project\"]). Takes precedence over 'category'. Free-form — 'skill' is legal here even though it is not in the 'category' enum."},
@@ -525,6 +531,7 @@ class TiberiusMemoryProvider(MemoryProvider):
             "add_batch": lambda self, a: self._add_batch(a),
             "checkpoint": lambda self, a: self._checkpoint(a),
             "supersede": lambda self, a: self._supersede(a),
+            "merge": lambda self, a: self._merge(a),
         }),
         "fact_feedback": lambda self, a: self._feedback(a),
     }
@@ -583,6 +590,20 @@ class TiberiusMemoryProvider(MemoryProvider):
             return json.dumps(self._store.supersede(a["fact_id"], content.strip(),
                                                     category=a.get("category"), tags=a.get("tags"),
                                                     origin=self._origin()))
+        except KeyError as e:
+            return tool_error(f"error: {e}")
+        except ValueError as e:
+            return tool_error(str(e))
+
+    def _merge(self, a: dict) -> str:
+        """Fold one fact into another atomically (docs/merge.md)."""
+        if not self._store:
+            return tool_error("store unavailable")
+        for key in ("from_fact_id", "into_fact_id"):
+            if not isinstance(a.get(key), int) or a[key] < 1:
+                return tool_error(f"merge requires integer '{key}' (both fact ids)")
+        try:
+            return json.dumps(self._store.merge_fact(a["from_fact_id"], a["into_fact_id"]))
         except KeyError as e:
             return tool_error(f"error: {e}")
         except ValueError as e:

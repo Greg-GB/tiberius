@@ -315,6 +315,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--category")
     s.add_argument("--tags", help="comma-separated tags for the replacement")
     s.add_argument("--origin", default="cli", help="writer tag recorded on the replacement row (default: cli)")
+    s = sub.add_parser("merge", help="fold one fact into another atomically: content/trust/entities/tags union, from row deleted (docs/merge.md)")
+    s.add_argument("from_fact_id", type=int, help="the fact to fold away (deleted)")
+    s.add_argument("into_fact_id", type=int, help="the surviving fact")
     sub.add_parser("stats", help="store orientation: totals, category mix, trust buckets, stale count")
     s = sub.add_parser("checkpoint", help="session handoff: one active checkpoint per session (docs/checkpoint.md)")
     csub = s.add_subparsers(dest="cp_op", required=True)
@@ -434,6 +437,16 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             except KeyError as exc:
                 print(json.dumps({"error": f"fact_id {a.fact_id} not found"}))  # same contract as remove/update
+                return 1
+            except ValueError as exc:
+                print(json.dumps({"error": str(exc)}))
+                return 1
+        elif a.cmd == "merge":
+            try:
+                print(json.dumps(store.merge_fact(a.from_fact_id, a.into_fact_id)))
+                return 0
+            except KeyError as exc:
+                print(json.dumps({"error": f"error: {exc}"}))
                 return 1
             except ValueError as exc:
                 print(json.dumps({"error": str(exc)}))

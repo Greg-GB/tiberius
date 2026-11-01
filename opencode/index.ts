@@ -603,6 +603,15 @@ export default Plugin.define({
           return { content: JSON.stringify(r ?? {}) };
         },
       });
+      e.add({
+        name: "memory_merge",
+        description: "Fold one fact into another (near-duplicate resolution): 'from' is deleted, its content concatenated onto 'into', trust = max, entities/tags = union — atomic, so no entity link is silently dropped (the hazard of update+remove). The 'into' fact_id survives (docs/merge.md). Use memory_update afterwards if you want a rewritten single statement.",
+        input: { type: "object", properties: { from_fact_id: { type: "integer", description: "The fact to fold away (deleted; its content/entities/tags move onto 'into')" }, into_fact_id: { type: "integer", description: "The surviving fact (its fact_id is returned with the merged row)" } }, required: ["from_fact_id", "into_fact_id"] },
+        execute: async (input: any) => {
+          const r = await callEngine(engine, baseArgs, ["merge", String(input.from_fact_id), String(input.into_fact_id)], undefined, env);
+          return { content: JSON.stringify(r ?? {}) };
+        },
+      });
       if (skillsEnabled) {
         // Skill-catalog tools (skillDirs set): the escape hatch past the
         // per-turn top-k, and the body loader for skills the built-in skill
