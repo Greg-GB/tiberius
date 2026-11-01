@@ -54,6 +54,10 @@ FACT_STORE_SCHEMA = {
         "concatenated onto 'into', trust = max, entities/tags = union — atomic, so no entity link is silently "
         "dropped (the hazard of update+remove). 'into' is the surviving fact_id. Superseded facts can't "
         "participate. Use 'update' afterwards if you want a rewritten single statement.\n"
+        "• hygiene — Store health report (read-only): orphan entities (fact_count <= 1), near-duplicate "
+        "clusters, oversized facts (over 'max_words' words, default 200), low-trust facts (below "
+        "'min_trust', default 0.45, with no helpful feedback), superseded count. Capped sections with total "
+        "counts — the mess, and how big it is. No auto-fixes: act on the report with merge/update/remove.\n"
         "• contradict — Memory hygiene: find facts making conflicting claims.\n• update/remove/list — CRUD operations.\n\n"
         "IMPORTANT: Before answering anything about the user, the environment, or the project, "
         "ALWAYS recall first (probe for entities, search for topics, reason across both) — "
@@ -62,7 +66,7 @@ FACT_STORE_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["add", "add_batch", "search", "probe", "show", "entities", "brief", "drift", "related", "reason", "contradict", "update", "remove", "list", "stats", "checkpoint", "supersede", "merge"]},
+            "action": {"type": "string", "enum": ["add", "add_batch", "search", "probe", "show", "entities", "brief", "drift", "related", "reason", "contradict", "update", "remove", "list", "stats", "checkpoint", "supersede", "merge", "hygiene"]},
             "content": {"type": "string", "description": "Fact content (required for 'add'; for 'supersede' the replacement statement)."},
             "query": {"type": "string", "description": "Search query (required for 'search'/'brief')."},
             "facts": {"type": "array", "minItems": 1,
@@ -95,7 +99,8 @@ FACT_STORE_SCHEMA = {
                    "description": "'checkpoint' only: the operation (default 'set'). 'set' replaces the session's active checkpoint with 'facts'; 'show' reads it; 'clear' deletes it."},
             "tags": {"type": "string", "description": "Comma-separated tags."},
             "trust_delta": {"type": "number", "description": "Trust adjustment for 'update'."},
-            "min_trust": {"type": "number", "description": "Minimum trust filter (default: 0.3)."},
+            "min_trust": {"type": "number", "description": "Minimum trust filter (default: 0.3; 'hygiene' defaults to 0.45)."},
+            "max_words": {"type": "integer", "description": "'hygiene' only: flag live facts longer than this many words (default: 200)."},
             "since": {"type": "string", "description": "'list'/'search'/'brief': only facts created at or after the cutoff. 'drift': the state-window anchor. ISO (YYYY-MM-DD[ HH:MM:SS] UTC) or relative (30m/2h/7d/2w); 'drift' defaults to the oldest plan fact."},
             "order": {"type": "string", "enum": ["trust", "retrieval", "recent", "stale"],
                       "description": "'list': ordering — trust (default, trust_score desc), retrieval (most-recalled first), recent (newest first), stale (oldest-updated first)."},
@@ -532,6 +537,10 @@ class TiberiusMemoryProvider(MemoryProvider):
             "checkpoint": lambda self, a: self._checkpoint(a),
             "supersede": lambda self, a: self._supersede(a),
             "merge": lambda self, a: self._merge(a),
+            "hygiene": lambda self, a: json.dumps(self._retriever.hygiene(
+                limit=max(1, a.get("limit") or 20),
+                max_words=int(a.get("max_words") or 200),
+                min_trust=float(a.get("min_trust") or 0.45))),
         }),
         "fact_feedback": lambda self, a: self._feedback(a),
     }

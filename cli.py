@@ -16,6 +16,7 @@ Usage (repo dir importable as package ``tiberius``, i.e. its PARENT on PYTHONPAT
   python3 -m tiberius.cli [--db PATH] supersede <fact_id> <content> [--category C] [--tags a,b]   # replace a fact; old row stays readable via show
   python3 -m tiberius.cli [--db PATH] list [--category C] [--min-trust T] [--since S] [--top N] [--order trust|retrieval|recent|stale]
   python3 -m tiberius.cli [--db PATH] stats
+  python3 -m tiberius.cli [--db PATH] hygiene [--limit N] [--max-words N] [--min-trust T] [--apply orphans]
   python3 -m tiberius.cli [--db PATH] checkpoint set <session> "task: …" ["decision: …" ...]   # replace (one active per session)
   python3 -m tiberius.cli [--db PATH] checkpoint show <session>
   python3 -m tiberius.cli [--db PATH] checkpoint clear <session>
@@ -319,6 +320,11 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("from_fact_id", type=int, help="the fact to fold away (deleted)")
     s.add_argument("into_fact_id", type=int, help="the surviving fact")
     sub.add_parser("stats", help="store orientation: totals, category mix, trust buckets, stale count")
+    s = sub.add_parser("hygiene", help="store health report: orphans, near-duplicates, oversized, low-trust (docs/hygiene.md)")
+    s.add_argument("--apply", choices=["orphans"], help="the only auto-fix: prune entities with zero linked facts (not single-fact)")
+    s.add_argument("--limit", type=int, default=20, help="max items per section (default: 20)")
+    s.add_argument("--max-words", type=int, default=200, help="oversized threshold in words (default: 200)")
+    s.add_argument("--min-trust", type=float, default=0.45, help="low-trust threshold (default: 0.45)")
     s = sub.add_parser("checkpoint", help="session handoff: one active checkpoint per session (docs/checkpoint.md)")
     csub = s.add_subparsers(dest="cp_op", required=True)
     cs = csub.add_parser("set", help="replace the session's checkpoint with 1-8 handoff lines")
@@ -453,6 +459,12 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
         elif a.cmd == "stats":
             print(json.dumps(store.stats()))
+            return 0
+        elif a.cmd == "hygiene":
+            if a.apply:  # the only write hygiene performs
+                print(json.dumps({"pruned_orphan_entities": store.prune_orphan_entities()}))
+                return 0
+            print(json.dumps(ret.hygiene(limit=a.limit, max_words=a.max_words, min_trust=a.min_trust)))
             return 0
         elif a.cmd == "list":
             rows = store.list_facts(category=a.category, min_trust=a.min_trust, limit=a.top, since=a.since,

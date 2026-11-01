@@ -588,6 +588,15 @@ class MemoryStore:
                  "fact_count": r["fact_count"]}
                 for r in rows]
 
+    def prune_orphan_entities(self) -> int:
+        """Delete entity rows with zero linked facts — the true orphans a fact deletion
+        leaves behind. Single-fact entities are NOT pruned: they are just young, and
+        pruning them loses probe fanout (docs/hygiene.md). Returns the number deleted;
+        the only write the hygiene action performs."""
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM entities WHERE entity_id NOT IN (SELECT entity_id FROM fact_entities)")
+            return cur.rowcount or 0
+
     def record_feedback(self, fact_id: int, helpful: bool) -> dict:
         """Adjust trust asymmetrically: helpful -> +0.05 and helpful_count += 1; unhelpful -> -0.10.
         Returns {fact_id, old_trust, new_trust, helpful_count}. Raises KeyError if fact_id is unknown."""

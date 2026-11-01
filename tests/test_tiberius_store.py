@@ -760,3 +760,24 @@ def test_merge_errors(tmp_path):
         store.merge_fact(c, b)
     assert len(store.list_facts(include_superseded=True)) == 5
     store.close()
+
+
+def test_prune_orphan_entities_only_zero_fact(tmp_path):
+    """docs/hygiene.md: apply 'orphans' prunes entities with zero linked facts
+    (true orphans from fact deletion); single-fact entities are young, not debt."""
+    store = MemoryStore(str(tmp_path / "prune.db"))
+    try:
+        store.add_fact("The AcmeWidget dock holds two gantries.")
+        solo = store.add_fact("The SoloMine runs one shift.")
+        gone = store.add_fact("OnlyQuarry is a quarry.")
+        store.remove_fact(gone)
+        assert store.prune_orphan_entities() == 1
+        names = {r["name"] for r in store.list_entities(top=50)}
+        assert "OnlyQuarry" not in names, "zero-fact entity pruned"
+        assert "SoloMine" in names and "AcmeWidget" in names, "single/fact-linked entities kept"
+        # idempotent: nothing left to prune
+        assert store.prune_orphan_entities() == 0
+        # the solo fact and its link are untouched
+        assert store.get_fact(solo) is not None
+    finally:
+        store.close()
