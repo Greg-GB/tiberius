@@ -472,3 +472,41 @@ def test_match_count_agrees_with_search_under_filters(tmp_path):
         assert n == got == 1
     finally:
         store.close()
+
+
+# ---------------------------------------------------------------------------
+# supersede: superseded facts are hidden from every recall path (docs/supersede.md)
+# ---------------------------------------------------------------------------
+
+def test_superseded_fact_hidden_from_search_probe_related_and_count(tmp_path):
+    """The pointer write alone must hide the old row from search, probe,
+    related, and the match_count coverage counter; the replacement stays."""
+    pytest.importorskip("numpy")
+    store = MemoryStore(str(tmp_path / "sup.db"), hrr_dim=128)
+    try:
+        old = store.add_fact("The ZetaDock relay listens on the north gate.")
+        new = store.supersede(old, "The ZetaDock relay now listens on the south gate.")["new_fact_id"]
+        ret = FactRetriever(store=store)
+        assert [f["fact_id"] for f in ret.search("ZetaDock relay gate")] == [new]
+        assert all(f["fact_id"] != old for f in ret.probe("ZetaDock"))
+        assert all(f["fact_id"] != old for f in ret.related("ZetaDock"))
+        assert ret.match_count("ZetaDock relay gate") == 1
+    finally:
+        store.close()
+
+
+def test_related_hop_superseded_fact_hidden(tmp_path):
+    """A superseded fact that would otherwise be a 1-hop neighbour does not
+    surface through related's hop scan."""
+    pytest.importorskip("numpy")
+    store = MemoryStore(str(tmp_path / "sup_hop.db"), hrr_dim=128)
+    try:
+        anchor = store.add_fact("ZetaDock ships crates to the northern docks.")
+        hop = store.add_fact("ZetaDock tracks crate status in the ledger.")
+        store.supersede(hop, "ZetaDock tracks crate status in the harbor log.")
+        ret = FactRetriever(store=store)
+        ids = {f["fact_id"] for f in ret.related("ZetaDock", limit=10)}
+        assert hop not in ids
+        assert anchor in ids  # the un-superseded sibling still comes back
+    finally:
+        store.close()

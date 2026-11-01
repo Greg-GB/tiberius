@@ -589,6 +589,18 @@ export default Plugin.define({
           return { content: JSON.stringify(r ?? {}) };
         },
       });
+      e.add({
+        name: "memory_supersede",
+        description: "Replace a stale fact: inserts a replacement and hides the old one from recall (it stays readable via memory_show, with superseded_by/superseded_at). The old fact's entities are not inherited — put them in the new content if they matter (docs/supersede.md).",
+        input: { type: "object", properties: { fact_id: { type: "integer", description: "The id of the fact to supersede" }, content: { type: "string", description: "Replacement statement (one fact, present tense; must differ from every existing fact)" }, tags: { type: "string", description: "Comma-separated tags for the replacement" }, category: { type: "string", description: "user_pref | project | tool | general" } }, required: ["fact_id", "content"] },
+        execute: async (input: any) => {
+          const args = ["supersede", String(input.fact_id), String(input.content)];
+          if (input.tags) args.push("--tags", String(input.tags));
+          if (input.category) args.push("--category", String(input.category));
+          const r = await callEngine(engine, baseArgs, args, undefined, env);
+          return { content: JSON.stringify(r ?? {}) };
+        },
+      });
       if (skillsEnabled) {
         // Skill-catalog tools (skillDirs set): the escape hatch past the
         // per-turn top-k, and the body loader for skills the built-in skill

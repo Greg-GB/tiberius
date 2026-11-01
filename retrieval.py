@@ -184,7 +184,7 @@ class FactRetriever:
 
     def _rows_by_ids(self, ids: set, category: str | None) -> list:
         qmarks = ",".join("?" * len(ids))
-        where = f"WHERE f.fact_id IN ({qmarks})"
+        where = f"WHERE f.fact_id IN ({qmarks}) AND f.superseded_by IS NULL"
         params: list = sorted(ids)
         if category:
             where += " AND f.category = ?"
@@ -369,7 +369,8 @@ class FactRetriever:
                  + ([exclude_category] if exclude_category else []) \
                  + ([_parse_since(since)] if since else []) + [min_trust, limit]
         sql = ("SELECT f.*, facts_fts.rank as fts_rank_raw FROM facts_fts JOIN facts f ON f.fact_id = facts_fts.rowid "
-               f"WHERE facts_fts MATCH ? {category_clause}{exclude_clause}{since_clause}AND f.trust_score >= ? ORDER BY facts_fts.rank LIMIT ?")
+               f"WHERE facts_fts MATCH ? {category_clause}{exclude_clause}{since_clause}"
+               "AND f.superseded_by IS NULL AND f.trust_score >= ? ORDER BY facts_fts.rank LIMIT ?")
         try:
             results = [dict(row) for row in self.store._conn.execute(sql, params).fetchall()]
         except Exception as exc:

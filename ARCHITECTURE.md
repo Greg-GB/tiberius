@@ -238,14 +238,14 @@ user text into candidate facts — one match per category:
   directly. Normalizes a concrete own-profile db path back to the
   `$HERMES_HOME/...` placeholder so config stays portable.
 - Tools: `fact_store` (add/add_batch/search/probe/show/entities/related/reason/contradict/update/
-  remove/list/stats/checkpoint — the full surface) and `fact_feedback` (single `fact_id` or
+  remove/supersede/list/stats/checkpoint — the full surface) and `fact_feedback` (single `fact_id` or
   batch `fact_ids`). `handle_tool_call`
   converts `KeyError` → 'missing argument' errors and any exception into
   `tool_error` (the agent sees a structured error, never a crash).
 
 **CLI (`cli.py`).** The subprocess surface. DB resolution: `--db` >
 `$TIBERIUS_DB` > `~/.tiberius/memory.db`. Commands: search/probe/show/entities/related/
-reason/contradict/add/add-batch/feedback/remove/update/list/stats/checkpoint/extract. Contract: **JSON on
+reason/contradict/add/add-batch/feedback/remove/update/supersede/list/stats/checkpoint/extract. Contract: **JSON on
 stdout, exit 0**; errors (unknown fact_id, empty add content, bad `add-batch` item
 (indexed), bare `update`
 with no fields, bad `--since`, sqlite-level failures) are `{"error": ...}` +

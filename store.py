@@ -202,6 +202,17 @@ class MemoryStore:
                 add_column_if_missing(self._conn, "facts", "hrr_vector", "hrr_vector BLOB")
             except ImportError:
                 self._conn.execute("ALTER TABLE facts ADD COLUMN hrr_vector BLOB")
+        # v0.6.7: supersede pointers (docs/supersede.md). Same double-check shape as
+        # hrr_vector: the helper re-checks the pragma inside; the bare ALTER is the
+        # fallback for the race.
+        fact_cols = {row[1] for row in self._conn.execute("PRAGMA table_info(facts)").fetchall()}
+        for col, col_def in (("superseded_by", "superseded_by INTEGER"), ("superseded_at", "superseded_at TEXT")):
+            if col not in fact_cols:
+                try:
+                    from hermes_cli.sqlite_util import add_column_if_missing
+                    add_column_if_missing(self._conn, "facts", col, col_def)
+                except ImportError:
+                    self._conn.execute(f"ALTER TABLE facts ADD COLUMN {col_def}")
         self._conn.commit()
         self._backfill_vectors()
 
@@ -366,14 +377,51 @@ class MemoryStore:
         res["replaced"] = replaced
         return res
 
+    def supersede(self, fact_id: int, content: str, category: str | None = None,
+                  tags: str | None = None) -> dict:
+        """Replace a fact: insert a replacement (normal add semantics — entities
+        are extracted from the new content) and point the old row at it.
+        Superseded rows are hidden from recall (search/probe/related/brief/list)
+        but stay readable via get_fact, which now returns superseded_by /
+        superseded_at (docs/supersede.md). Superseding an already-superseded
+        fact re-points it (single-hop history). Two committed steps (add, then
+        mark): a crash between them leaves a resolvable duplicate, never an
+        orphaned replacement. Raises KeyError for an unknown id, ValueError if
+        the content is empty or matches the target's or any other fact's
+        content exactly (the UNIQUE path would otherwise hand back a foreign
+        fact_id as the 'replacement')."""
+        content = (content or "").strip()
+        if not content:
+            raise ValueError("supersede content must not be empty")
+        with self._lock:
+            row = self._one("SELECT fact_id FROM facts WHERE fact_id = ?", (fact_id,))
+            if row is None:
+                raise KeyError(f"fact {fact_id} not found")
+            dup = self._one("SELECT fact_id FROM facts WHERE content = ? AND fact_id != ?",
+                            (content, fact_id))
+        if dup is not None:
+            raise ValueError(f"supersede content matches fact {dup['fact_id']} exactly — "
+                             f"remove that fact or use 'update' instead")
+        new_id = self.add_fact(content, category=category or "general", tags=tags or "")
+        if new_id == fact_id:
+            # Race: the target's own content changed to ours between the dup check
+            # and the insert (the UNIQUE path returned the target itself).
+            raise ValueError("supersede content matches the fact's current content — nothing to change")
+        with self._lock:
+            self._write("UPDATE facts SET superseded_by = ?, superseded_at = CURRENT_TIMESTAMP "
+                        "WHERE fact_id = ?", (new_id, fact_id))
+            ts = self._one("SELECT superseded_at FROM facts WHERE fact_id = ?", (fact_id,))["superseded_at"]
+        return {"superseded_fact_id": fact_id, "new_fact_id": new_id, "superseded_at": ts}
+
     def list_facts(self, category: str | None = None, min_trust: float = 0.0, limit: int = 50,
-                   since: str | None = None, order: str = "trust") -> list[dict]:
+                   since: str | None = None, order: str = "trust", include_superseded: bool = False) -> list[dict]:
         """Browse facts, optionally filtered by category / min trust / since
         (ISO date/datetime UTC or relative 30m/2h/7d/2w — facts created at or
         after it). Since filters on created_at, which only the write path
         sets — updates don't move it. Order: trust (default, trust_score DESC),
         retrieval (retrieval_count DESC), recent (created_at DESC), stale
-        (updated_at ASC)."""
+        (updated_at ASC). Superseded rows are hidden by default;
+        include_superseded shows them (docs/supersede.md)."""
         order_map = {"trust": "trust_score DESC", "retrieval": "retrieval_count DESC",
                      "recent": "created_at DESC", "stale": "updated_at ASC"}
         if order not in order_map:
@@ -381,10 +429,11 @@ class MemoryStore:
         with self._lock:
             category_clause = "AND category = ? " if category is not None else ""
             since_clause = "AND created_at >= ? " if since is not None else ""
+            superseded_clause = "" if include_superseded else "AND superseded_by IS NULL "
             params = [min_trust] + ([category] if category is not None else []) \
                      + ([_parse_since(since)] if since is not None else []) + [limit]
             sql = (f"SELECT fact_id, content, category, tags, trust_score, retrieval_count, helpful_count, "
-                   f"created_at, updated_at FROM facts WHERE trust_score >= ? {category_clause}{since_clause}"
+                   f"created_at, updated_at FROM facts WHERE trust_score >= ? {superseded_clause}{category_clause}{since_clause}"
                    f"ORDER BY {order_map[order]} LIMIT ?")
             return [dict(r) for r in self._conn.execute(sql, params).fetchall()]
 
@@ -417,7 +466,8 @@ class MemoryStore:
         with self._lock:
             row = self._one(
                 "SELECT fact_id, content, category, tags, trust_score, retrieval_count, "
-                "helpful_count, created_at, updated_at FROM facts WHERE fact_id = ?", (fact_id,))
+                "helpful_count, created_at, updated_at, superseded_by, superseded_at "
+                "FROM facts WHERE fact_id = ?", (fact_id,))
             if row is None:
                 return None
             out = dict(row)
