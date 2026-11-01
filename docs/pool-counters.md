@@ -1,6 +1,6 @@
 # Passive pool-size counters (retrieval telemetry)
 
-Status: unreleased — candidate. One standalone doc per branch (no roadmap index).
+Status: **shipped** — v0.6.11 (2026-11-01). One standalone doc per branch (no roadmap index).
 
 ## Problem
 
