@@ -43,7 +43,11 @@ projects, and tools. Nothing leaves the machine.
   date) — recent facts by time, not by keyword. `search` and `brief` take the
   same `since` window (facts created at or after), plus `categories` (IN list)
   and `exclude_category` to filter the candidate pool — e.g. drop `skill`
-  facts that dilute generic queries (`docs/search-categories.md`).
+  facts that dilute generic queries (`docs/search-categories.md`). The same
+  actions — plus `probe` / `related` / `reason` / `list` — take `origin` /
+  `exclude_origin` to filter by writer (the provider's profile:session tag,
+  `cli`, `skill-sync`, `opencode`); `stats` shows the per-origin breakdown
+  and rows carry the field for audit (`docs/provenance.md`).
 - **Conflicting recall:** if recalled facts disagree about the same thing,
   don't silently pick the higher-ranked one — ask which is current, then
   `update` or `remove` the stale one. A surfaced contradiction is cheaper

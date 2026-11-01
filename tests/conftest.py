@@ -35,6 +35,7 @@ _HERMES_ONLY_TESTS = {
     "test_tiberius_hermes_show.py": "agent",
     "test_tiberius_hermes_since.py": "agent",
     "test_tiberius_hermes_supersede.py": "agent",
+    "test_tiberius_hermes_origin.py": "agent",
     "test_tiberius_hermes_skills.py": "hermes_yaml",
     "test_tiberius_profile_db_path.py": "hermes_yaml",
     "test_tiberius_save_config.py": "hermes_yaml",

@@ -510,3 +510,87 @@ def test_related_hop_superseded_fact_hidden(tmp_path):
         assert anchor in ids  # the un-superseded sibling still comes back
     finally:
         store.close()
+
+
+def _origin_store(tmp_path):
+    """Three facts sharing the query tokens and the 'AcmeWidget' entity,
+    one per origin bucket (legacy/cli/opencode)."""
+    pytest.importorskip("numpy")
+    store = MemoryStore(str(tmp_path / "m.db"), hrr_dim=128)
+    store.add_fact("AcmeWidget relay keeps the legacy route.")
+    store.add_fact("AcmeWidget relay keeps the backup route.", origin="cli")
+    store.add_fact("AcmeWidget relay keeps the primary route.", origin="opencode")
+    return store
+
+
+def test_search_origin_include_filters_pool(tmp_path):
+    """docs/provenance.md: origin includes only that writer's rows in the
+    candidate pool, and match_count agrees on the same pool."""
+    store = _origin_store(tmp_path)
+    try:
+        ret = FactRetriever(store)
+        unfiltered = {r["fact_id"] for r in ret.search("AcmeWidget relay route", min_trust=0.0)}
+        assert len(unfiltered) == 3
+        cli_rows = ret.search("relay service route", min_trust=0.0, origin="cli")
+        assert {r["origin"] for r in cli_rows} == {"cli"}
+        assert ret.match_count("AcmeWidget relay route", min_trust=0.0, origin="cli") == 1
+    finally:
+        store.close()
+
+
+def test_search_exclude_origin_keeps_legacy_null_rows(tmp_path):
+    """exclude_origin drops one writer but keeps legacy NULL-origin rows."""
+    store = _origin_store(tmp_path)
+    try:
+        ret = FactRetriever(store)
+        rows = ret.search("relay service route", min_trust=0.0, exclude_origin="cli")
+        assert {r["origin"] for r in rows} == {None, "opencode"}
+        assert ret.match_count("AcmeWidget relay route", min_trust=0.0, exclude_origin="cli") == 2
+    finally:
+        store.close()
+
+
+def test_probe_entity_path_respects_origin(tmp_path):
+    """The entity path applies the same origin clause: probing a shared entity
+    returns only the requested writer's facts (or falls back to a filtered
+    FTS search — same writer either way)."""
+    store = _origin_store(tmp_path)
+    try:
+        ret = FactRetriever(store)
+        oc_ids = {r["fact_id"] for r in store.list_facts(origin="opencode")}
+        other_ids = {r["fact_id"] for r in store.list_facts(exclude_origin="opencode")}
+        q1, q2 = ",".join("?" * len(oc_ids)), ",".join("?" * len(other_ids))
+        row = store._conn.execute(
+            f"SELECT e.name FROM fact_entities fe "
+            f"JOIN entities e ON e.entity_id = fe.entity_id WHERE fe.fact_id IN ({q1}) "
+            f"INTERSECT SELECT e2.name FROM fact_entities fe2 "
+            f"JOIN entities e2 ON e2.entity_id = fe2.entity_id WHERE fe2.fact_id IN ({q2}) LIMIT 1",
+            (*sorted(oc_ids), *sorted(other_ids))).fetchone()
+        assert row, "the shared template should extract a shared entity"
+        rows = ret.probe(row[0], origin="opencode")
+        assert rows, "expected the opencode fact for the shared entity"
+        assert {r["fact_id"] for r in rows} <= oc_ids
+    finally:
+        store.close()
+
+
+def test_related_hop_filter_keeps_passing_facts(tmp_path):
+    """Regression: the hop filter's param list carried fid LAST while the SQL binds it
+    FIRST (WHERE fact_id = ? AND ...), so any filtered related() call emptied the hop
+    set silently — the pre-existing category path included."""
+    pytest.importorskip("numpy")
+    store = MemoryStore(str(tmp_path / "hop.db"), hrr_dim=128)
+    try:
+        store.add_fact("AcmeWidget uses RelayX in the X route.", category="project")
+        store.add_fact("RelayX is built by ZetaCorp.", category="project", origin="opencode")
+        ret = FactRetriever(store)
+        r = ret.related("AcmeWidget", limit=10, category="project")
+        assert {f["content"] for f in r} == {
+            "AcmeWidget uses RelayX in the X route.",
+            "RelayX is built by ZetaCorp.",
+        }, "category-filtered hop fact must survive the hop check"
+        r2 = ret.related("AcmeWidget", limit=10, origin="opencode")
+        assert [f["content"] for f in r2] == ["RelayX is built by ZetaCorp."], \
+            "origin-filtered related keeps only the passing hop fact"
+    finally:
+        store.close()

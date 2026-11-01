@@ -67,22 +67,27 @@ class FactRetriever:
 
     def search(self, query: str, category: str | None = None, min_trust: float = 0.3, limit: int = 10,
                since: str | None = None, categories: list[str] | None = None,
-               exclude_category: str | None = None) -> list[dict]:
+               exclude_category: str | None = None, origin: str | None = None,
+               exclude_origin: str | None = None) -> list[dict]:
         """Public keyword search: _search plus retrieval recording. probe/related/reason fallbacks
         call _search directly so each recall counts its returned facts exactly once.
         since (the store._parse_since forms) window the candidate pool on created_at, so limit
         sees the windowed pool — omitted = unfiltered, as before.
         categories (IN list) / exclude_category filter the candidate pool; categories takes
-        precedence over the singular category (docs/search-categories.md)."""
+        precedence over the singular category (docs/search-categories.md).
+        origin includes only one writer's rows; exclude_origin drops one writer but keeps
+        legacy NULL-origin rows (docs/provenance.md)."""
         return self._recorded(self._search(query, category, min_trust, limit, since=since,
-                                           categories=categories, exclude_category=exclude_category))
+                                           categories=categories, exclude_category=exclude_category,
+                                           origin=origin, exclude_origin=exclude_origin))
 
     def match_count(self, query: str, category: str | None = None, min_trust: float = 0.3,
                     since: str | None = None, categories: list[str] | None = None,
-                    exclude_category: str | None = None) -> int:
+                    exclude_category: str | None = None, origin: str | None = None,
+                    exclude_origin: str | None = None) -> int:
         """How many facts match a query at or above min_trust — the prefetch coverage counter.
         Counts the FTS candidate pool (same exact-then-prefix fallback as _search, same
-        category/exclude filters) with no HRR rerank and no retrieval recording, so the
+        category/exclude/origin filters) with no HRR rerank and no retrieval recording, so the
         usage signal stays clean. Takes the same since window as search so a windowed
         caller's 'N of M' marker describes the window.
         ponytail: counts the FTS pool, not the reranked _search output; if _search ever filters
@@ -90,10 +95,12 @@ class FactRetriever:
         with self.store._lock:
             expanded = self._expand_aliases(query)
             n = len(self._fts_candidates(expanded, category, min_trust, 10_000, since=since,
-                                         categories=categories, exclude_category=exclude_category))
+                                         categories=categories, exclude_category=exclude_category,
+                                         origin=origin, exclude_origin=exclude_origin))
             if n == 0:
                 n = len(self._fts_candidates(expanded, category, min_trust, 10_000, prefix=True, since=since,
-                                             categories=categories, exclude_category=exclude_category))
+                                             categories=categories, exclude_category=exclude_category,
+                                             origin=origin, exclude_origin=exclude_origin))
             return n
 
     def find_duplicates(self, content: str, new_id: int, threshold: float = 0.5, limit: int = 3) -> list[dict]:
@@ -118,7 +125,8 @@ class FactRetriever:
 
     def _search(self, query: str, category: str | None = None, min_trust: float = 0.3, limit: int = 10,
                 since: str | None = None, categories: list[str] | None = None,
-                exclude_category: str | None = None) -> list[dict]:
+                exclude_category: str | None = None, origin: str | None = None,
+                exclude_origin: str | None = None) -> list[dict]:
         with self.store._lock:  # retriever reads must not interleave with a store writer on the shared connection
             """FTS5 candidates (limit*3) → Jaccard + HRR rerank → trust weighting → optional temporal decay
             0.5^(age_days / half_life). Returns fact dicts with 'score', sorted desc."""
@@ -127,12 +135,14 @@ class FactRetriever:
             # found nothing, so a working candidate set is never diluted.
             expanded = self._expand_aliases(query)
             candidates = self._fts_candidates(expanded, category, min_trust, limit * 3, since=since,
-                                              categories=categories, exclude_category=exclude_category)
+                                              categories=categories, exclude_category=exclude_category,
+                                              origin=origin, exclude_origin=exclude_origin)
             if not candidates:
                 # Exact tokens miss inflections (backup/backups, rotation/rotate): retry with
                 # prefix tokens ("tok"*) when — and only when — the exact pass returned nothing.
                 candidates = self._fts_candidates(expanded, category, min_trust, limit * 3, prefix=True, since=since,
-                                                  categories=categories, exclude_category=exclude_category)
+                                                  categories=categories, exclude_category=exclude_category,
+                                                  origin=origin, exclude_origin=exclude_origin)
             query_tokens = self._tokenize(query)
             # Query vector is loop-invariant; encode lazily on the first candidate that carries an HRR vector
             # so stores whose hrr_vector was never backfilled don't pay for it.
@@ -182,13 +192,20 @@ class FactRetriever:
             params.append(category)
         return {row[0] for row in self.store._conn.execute(sql, params)}
 
-    def _rows_by_ids(self, ids: set, category: str | None) -> list:
+    def _rows_by_ids(self, ids: set, category: str | None, origin: str | None = None,
+                     exclude_origin: str | None = None) -> list:
         qmarks = ",".join("?" * len(ids))
         where = f"WHERE f.fact_id IN ({qmarks}) AND f.superseded_by IS NULL"
         params: list = sorted(ids)
         if category:
             where += " AND f.category = ?"
             params.append(category)
+        if origin is not None:
+            where += " AND f.origin = ?"
+            params.append(origin)
+        if exclude_origin:
+            where += " AND (f.origin IS NULL OR f.origin != ?)"
+            params.append(exclude_origin)
         return self.store._conn.execute(
             f"SELECT {_FACT_COLUMNS}, hrr_vector FROM facts f {where}", params).fetchall()
 
@@ -199,7 +216,8 @@ class FactRetriever:
         vecs = [v for v in vecs if v is not None]
         return hrr.bundle(*vecs) if vecs else None
 
-    def probe(self, entity: str | list[str], category: str | None = None, limit: int = 10) -> list[dict]:
+    def probe(self, entity: str | list[str], category: str | None = None, limit: int = 10,
+              origin: str | None = None, exclude_origin: str | None = None) -> list[dict]:
         """Compositional entity query: facts where the entity is a linked subject, ranked by content
         centrality to the entity's fact set. Pass a list of names for the union — facts linked to ANY
         of them, ranked against the union's own set (the OR counterpart of `reason`, which requires ALL).
@@ -210,51 +228,71 @@ class FactRetriever:
         with self.store._lock:  # retriever reads must not interleave with a store writer on the shared connection
             names = [self._canonical(e) for e in (entity if isinstance(entity, list) else [entity])]  # alias -> canonical, so either AKA name works
             if not hrr._HAS_NUMPY:
-                return self.search(" ".join(names), category=category, limit=limit)
+                return self.search(" ".join(names), category=category, limit=limit,
+                                   origin=origin, exclude_origin=exclude_origin)
             ids = set.union(*[self._entity_fact_ids(n, category) for n in names])  # one name: its own set
             if not ids:
-                return self.search(" ".join(names), category=category, limit=limit)
-            rows = self._rows_by_ids(ids, category)
+                return self.search(" ".join(names), category=category, limit=limit,
+                                   origin=origin, exclude_origin=exclude_origin)
+            rows = self._rows_by_ids(ids, category, origin, exclude_origin)
             if not rows:
-                return self.search(" ".join(names), category=category, limit=limit)
+                return self.search(" ".join(names), category=category, limit=limit,
+                                   origin=origin, exclude_origin=exclude_origin)
             ctx = self._ctx_bundle(rows)
             return self._recorded(self._rank_by_ctx(rows, ctx, limit))
 
-    def related(self, entity: str, category: str | None = None, limit: int = 10) -> list[dict]:
+    def related(self, entity: str, category: str | None = None, limit: int = 10,
+                origin: str | None = None, exclude_origin: str | None = None) -> list[dict]:
         """Facts structurally connected to an entity: its own facts plus 1-hop neighbors (facts sharing any
         of its entities), ranked by content centrality to the entity's own fact set. Falls back to FTS5
         when nothing is linked or without numpy."""
         with self.store._lock:
             entity = self._canonical(entity)  # alias -> canonical
             if not hrr._HAS_NUMPY:
-                return self.search(entity, category=category, limit=limit)
+                return self.search(entity, category=category, limit=limit,
+                                   origin=origin, exclude_origin=exclude_origin)
             own_ids = self._entity_fact_ids(entity, category)
             if not own_ids:
-                return self.search(entity, category=category, limit=limit)
-            own = self._rows_by_ids(own_ids, category)
+                return self.search(entity, category=category, limit=limit,
+                                   origin=origin, exclude_origin=exclude_origin)
+            own = self._rows_by_ids(own_ids, category, origin, exclude_origin)
             # 1-hop: facts linked to any of the entity's entities, excluding the entity's own facts
             qmarks = ",".join("?" * len(own_ids))
             hop_ids = {row[0] for row in self.store._conn.execute(
                 f"SELECT DISTINCT fe2.fact_id FROM fact_entities fe1 "
                 f"JOIN fact_entities fe2 ON fe2.entity_id = fe1.entity_id AND fe2.fact_id != fe1.fact_id "
                 f"WHERE fe1.fact_id IN ({qmarks})", sorted(own_ids))} - own_ids  # own facts come from `own`; without this subtraction every own fact of a multi-fact entity also lands in hop (sharing the queried entity with its siblings) and is returned twice
-            if category:  # hop set bypasses the category filter above
+            if category or origin is not None or exclude_origin:  # hop set bypasses the filters above
+                where = "SELECT 1 FROM facts WHERE fact_id = ?"
+                hop_params: list = []
+                if category:
+                    where += " AND category = ?"
+                    hop_params.append(category)
+                if origin is not None:
+                    where += " AND origin = ?"
+                    hop_params.append(origin)
+                if exclude_origin:
+                    where += " AND (origin IS NULL OR origin != ?)"
+                    hop_params.append(exclude_origin)
                 hop_ids = {fid for fid in hop_ids if self.store._conn.execute(
-                    "SELECT 1 FROM facts WHERE fact_id = ? AND category = ?", (fid, category)).fetchone()}
-            rows = own + (self._rows_by_ids(hop_ids, category) if hop_ids else [])
+                    where, [fid] + hop_params).fetchone()}
+            rows = own + (self._rows_by_ids(hop_ids, category, origin, exclude_origin) if hop_ids else [])
             ctx = self._ctx_bundle(own)  # centrality to the entity's own facts, not the neighborhood
             return self._recorded(self._rank_by_vector(rows, lambda _f, v: hrr.similarity(v, ctx) if ctx is not None else 0.0, limit))
 
-    def reason(self, entities: list[str], category: str | None = None, limit: int = 10) -> list[dict]:
+    def reason(self, entities: list[str], category: str | None = None, limit: int = 10,
+               origin: str | None = None, exclude_origin: str | None = None) -> list[dict]:
         """Multi-entity compositional query (entity-graph JOIN): facts linked to ALL entities, ranked by
         content centrality to the intersection. Falls back to FTS5 on empty intersection or without numpy."""
         with self.store._lock:
             if not hrr._HAS_NUMPY or not entities:
-                return self.search(" ".join(entities), category=category, limit=limit)
+                return self.search(" ".join(entities), category=category, limit=limit,
+                                   origin=origin, exclude_origin=exclude_origin)
             ids = set.intersection(*(self._entity_fact_ids(self._canonical(e), category) for e in entities))
             if not ids:
-                return self.search(" ".join(entities), category=category, limit=limit)
-            rows = self._rows_by_ids(ids, category)
+                return self.search(" ".join(entities), category=category, limit=limit,
+                                   origin=origin, exclude_origin=exclude_origin)
+            rows = self._rows_by_ids(ids, category, origin, exclude_origin)
             ctx = self._ctx_bundle(rows)
             return self._recorded(self._rank_by_vector(rows, lambda _f, v: hrr.similarity(v, ctx) if ctx is not None else 0.0, limit))
 
@@ -349,13 +387,16 @@ class FactRetriever:
     def _fts_candidates(self, query: str, category: str | None, min_trust: float, limit: int,
                         prefix: bool = False, since: str | None = None,
                         categories: list[str] | None = None,
-                        exclude_category: str | None = None) -> list[dict]:
+                        exclude_category: str | None = None, origin: str | None = None,
+                        exclude_origin: str | None = None) -> list[dict]:
         """Raw FTS5 MATCH candidates with rank normalized to [0, 1] as 'fts_rank'.
         prefix=True turns each token into a prefix match ("tok"*), used as the zero-candidate fallback.
         since (the store._parse_since forms) filters the pool on created_at — facts created at or
         after it — so the caller's limit/budget is consumed from the windowed pool.
         categories (IN list) takes precedence over the singular category; exclude_category drops
-        one value on top of whatever inclusion won (docs/search-categories.md)."""
+        one value on top of whatever inclusion won (docs/search-categories.md).
+        origin includes only one writer's rows; exclude_origin drops one writer but keeps legacy
+        NULL-origin rows (docs/provenance.md)."""
         if categories:
             category_clause = f"AND f.category IN ({','.join('?' * len(categories))}) "
         elif category:
@@ -363,13 +404,17 @@ class FactRetriever:
         else:
             category_clause = ""
         exclude_clause = "AND f.category != ? " if exclude_category else ""
+        origin_clause = "AND f.origin = ? " if origin is not None else ""
+        exclude_origin_clause = "AND (f.origin IS NULL OR f.origin != ?) " if exclude_origin else ""
         since_clause = "AND f.created_at >= ? " if since else ""
         params = [self._sanitize_fts_query(query, prefix=prefix)] \
                  + (list(categories) if categories else ([category] if category else [])) \
                  + ([exclude_category] if exclude_category else []) \
+                 + ([origin] if origin is not None else []) \
+                 + ([exclude_origin] if exclude_origin else []) \
                  + ([_parse_since(since)] if since else []) + [min_trust, limit]
         sql = ("SELECT f.*, facts_fts.rank as fts_rank_raw FROM facts_fts JOIN facts f ON f.fact_id = facts_fts.rowid "
-               f"WHERE facts_fts MATCH ? {category_clause}{exclude_clause}{since_clause}"
+               f"WHERE facts_fts MATCH ? {category_clause}{exclude_clause}{origin_clause}{exclude_origin_clause}{since_clause}"
                "AND f.superseded_by IS NULL AND f.trust_score >= ? ORDER BY facts_fts.rank LIMIT ?")
         try:
             results = [dict(row) for row in self.store._conn.execute(sql, params).fetchall()]

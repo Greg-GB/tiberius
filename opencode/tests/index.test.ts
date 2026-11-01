@@ -667,11 +667,26 @@ test("memory_add_batch sends the facts JSON on stdin and passes the result throu
     const out = await tool.execute({ facts: ["fact one", "fact two"] }, { sessionID: "ses1" });
     // Output contract (docs/batch.md): {added, duplicates, fact_ids} — passed through un-rendered.
     assert.deepEqual(JSON.parse(out.content), { added: 2, duplicates: 0, fact_ids: [9000, 9001] });
-    assert.deepEqual(logEntries().map((e) => e.argv), [A("add-batch")]);
+    assert.deepEqual(logEntries().map((e) => e.argv), [A("add-batch", "--origin", "opencode")]);
     // Empty facts is a client-side error: no engine call at all.
     const empty = await tool.execute({ facts: [] }, { sessionID: "ses1" });
     assert.deepEqual(JSON.parse(empty.content), { error: "facts must be a non-empty array" });
     assert.equal(logEntries().length, 1);
+  });
+});
+
+test("memory_add pins the --origin opencode writer flag on the add argv", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_add");
+    await tool.execute({ content: "a fact written through opencode" }, { sessionID: "ses1" });
+    // Provenance (docs/provenance.md): every opencode write carries its writer tag.
+    assert.deepEqual(logEntries().map((e) => e.argv), [
+      A("add", "a fact written through opencode", "--origin", "opencode"),
+    ]);
+    await tool.execute({ content: "another one", category: "tool", tags: "ports" }, { sessionID: "ses1" });
+    assert.deepEqual(logEntries().map((e) => e.argv).slice(1), [
+      A("add", "another one", "--category", "tool", "--tags", "ports", "--origin", "opencode"),
+    ]);
   });
 });
 
@@ -749,8 +764,8 @@ test("memory_supersede sends supersede argv with optional flags and passes the r
     assert.ok(JSON.parse(out.content)); // the fake engine's echo, passed through as JSON
     await tool.execute({ fact_id: 8, content: "A second replacement statement" });
     assert.deepEqual(logEntries().map((e) => e.argv), [
-      A("supersede", "7", "The service now runs on port 8081", "--tags", "ports,infra", "--category", "tool"),
-      A("supersede", "8", "A second replacement statement"),
+      A("supersede", "7", "The service now runs on port 8081", "--tags", "ports,infra", "--category", "tool", "--origin", "opencode"),
+      A("supersede", "8", "A second replacement statement", "--origin", "opencode"),
     ]);
   });
 });
@@ -856,7 +871,7 @@ test("session end: feedback helpful once per loaded skill (failed loads excluded
     assert.deepEqual(
       entries.map((e) => e.argv),
       [
-        A("extract"),
+        A("extract", "--origin", "opencode"),
         A("list", "--category", "skill", "--top", "1000"),
         A("feedback", "1", "helpful"), // alpha — dedicated transcript skill message
         A("feedback", "2", "helpful"), // beta — completed memory_skill_load part
@@ -868,7 +883,7 @@ test("session end: feedback helpful once per loaded skill (failed loads excluded
     h.setTranscript("ses1", [...transcript, { type: "user", id: "u2", text: "thanks, that memory skill worked great" }]);
     h.pushEvent(turn("e2"));
     const entries2 = await waitForLog(6);
-    assert.deepEqual(entries2[5].argv, A("extract"));
+    assert.deepEqual(entries2[5].argv, A("extract", "--origin", "opencode"));
     assert.ok(!entries2.slice(5).some((e) => e.argv[2] === "feedback" || e.argv[2] === "list"));
   });
 });
@@ -884,7 +899,7 @@ test("session end, options unset: a built-in skill load triggers no skill-catalo
     ]);
     h.pushEvent({ id: "e1", created: 0, type: "session.execution.succeeded", durable: {}, data: { sessionID: "ses1" } });
     const entries = await waitForLog(1);
-    assert.deepEqual(entries.map((e) => e.argv), [A("extract")]);
+    assert.deepEqual(entries.map((e) => e.argv), [A("extract", "--origin", "opencode")]);
     // The turn handler is done once the extract landed; no list/feedback may follow.
     await new Promise((r) => setTimeout(r, 200));
     assert.ok(!logEntries().some((e) => e.argv[2] === "list" || e.argv[2] === "feedback"));

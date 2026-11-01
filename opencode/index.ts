@@ -503,6 +503,7 @@ export default Plugin.define({
           const args = ["add", String(input.content)];
           if (input.category) args.push("--category", String(input.category));
           if (input.tags) args.push("--tags", String(input.tags));
+          args.push("--origin", "opencode");
           const r = await callEngine(engine, baseArgs, args, undefined, env);
           return { content: JSON.stringify(r ?? {}) };
         },
@@ -514,7 +515,7 @@ export default Plugin.define({
         execute: async (input: any) => {
           const facts = Array.isArray(input.facts) ? input.facts : [];
           if (!facts.length) return { content: JSON.stringify({ error: "facts must be a non-empty array" }) };
-          const r = await callEngine(engine, baseArgs, ["add-batch"], JSON.stringify(facts), env);
+          const r = await callEngine(engine, baseArgs, ["add-batch", "--origin", "opencode"], JSON.stringify(facts), env);
           return { content: JSON.stringify(r ?? {}) };
         },
       });
@@ -597,6 +598,7 @@ export default Plugin.define({
           const args = ["supersede", String(input.fact_id), String(input.content)];
           if (input.tags) args.push("--tags", String(input.tags));
           if (input.category) args.push("--category", String(input.category));
+          args.push("--origin", "opencode");
           const r = await callEngine(engine, baseArgs, args, undefined, env);
           return { content: JSON.stringify(r ?? {}) };
         },
@@ -782,7 +784,7 @@ export default Plugin.define({
             .map((m) => ({ role: "user", content: m.text as string }))
             .filter((m) => m.content.length >= 10);
           if (msgs.length) {
-            await runEngine(engine, baseArgs, ["extract"], JSON.stringify(msgs), env);
+            await runEngine(engine, baseArgs, ["extract", "--origin", "opencode"], JSON.stringify(msgs), env);
             // Mark AFTER the engine call: a failed turn retries its messages next turn.
             for (const m of fresh) if (typeof m.id === "string") seen.add(m.id);
           }

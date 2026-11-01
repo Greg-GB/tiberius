@@ -115,6 +115,12 @@ Files:
 - **Near-duplicate detection**: `add` reports `possible_duplicates` (token-overlap over
   the FTS candidate pool) — report-only, the caller removes if it agrees; the store
   never blocks a write.
+- **Provenance**: every write records who wrote it (`origin` on `facts` — the
+  profile:session runtime tag for the provider, `cli` for CLI writes,
+  `skill-sync`, `opencode`). Recall actions take `origin` / `exclude_origin`
+  (NULL-safe: legacy rows survive exclusion), `stats` reports the per-origin
+  breakdown, and `show`/`list` rows carry the field for audit
+  (`docs/provenance.md`).
 - **Quality gates**: the core test suite (runs anywhere — `python -m pytest -q`),
   the plugin unit tests, Hermes-provider tests (need a Hermes environment), and
   a 19-query golden recall eval (`eval/`) that any retrieval change must not
@@ -396,13 +402,13 @@ python3 -m tiberius.cli --db PATH reason "a" "b"
 python3 -m tiberius.cli --db PATH brief "query" [--budget N] [--since S]
 python3 -m tiberius.cli --db PATH drift "project" [--since S] [--budget N] [--top N] [--support T]
 python3 -m tiberius.cli --db PATH contradict [--category C] [--threshold T] [--top N]
-python3 -m tiberius.cli --db PATH add "fact" [--category C] [--tags a,b]
+python3 -m tiberius.cli --db PATH add "fact" [--category C] [--tags a,b] [--origin O]
 echo '["fact", {"content": "fact", "category": "project"}]' | python3 -m tiberius.cli --db PATH add-batch
 python3 -m tiberius.cli --db PATH feedback <id|id,...> helpful|unhelpful
 python3 -m tiberius.cli --db PATH remove <id>
 python3 -m tiberius.cli --db PATH update <id> [--content TEXT] [--tags a,b] [--category C] [--trust-delta T]
 python3 -m tiberius.cli --db PATH supersede <id> "replacement statement" [--category C] [--tags a,b]
-python3 -m tiberius.cli --db PATH list [--category C] [--min-trust T] [--since 30m|2h|7d|2w|YYYY-MM-DD] [--top N] [--order trust|retrieval|recent|stale]
+python3 -m tiberius.cli --db PATH list [--category C] [--min-trust T] [--since 30m|2h|7d|2w|YYYY-MM-DD] [--top N] [--order trust|retrieval|recent|stale] [--origin O] [--exclude-origin O]
 python3 -m tiberius.cli --db PATH stats
 python3 -m tiberius.cli --db PATH checkpoint set <session> "task: …" ["decision: …" ...]
 python3 -m tiberius.cli --db PATH checkpoint show <session>

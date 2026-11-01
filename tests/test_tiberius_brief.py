@@ -200,3 +200,19 @@ def test_brief_pool_excludes_superseded_facts(tmp_path, capsys):
     assert out["total"] == 3  # the superseded line is out of the marker too
     contents = {r["content"] for r in out["facts"]}
     assert "AcmeWidget crate line 0 ships to the docks on Tuesdays." not in contents
+
+
+def test_brief_origin_filter_pool_and_marker(tmp_path, capsys):
+    """docs/provenance.md: brief filters the pool by writer, and 'total'
+    describes the same filtered pool (house invariant)."""
+    db = str(tmp_path / "m.db")
+    _seed(capsys, db, n=2)  # CLI default writer: cli
+    _run(capsys, "--db", db, "add", "AcmeWidget crate line 9 ships to the docks on Wednesdays.",
+         "--origin", "opencode")
+    out = _run(capsys, "--db", db, "brief", "AcmeWidget", "--origin", "opencode")
+    assert out["total"] == 1
+    contents = {r["content"] for r in out["facts"]}
+    assert contents == {"AcmeWidget crate line 9 ships to the docks on Wednesdays."}
+    # exclude_origin drops the writer but keeps legacy NULL-origin rows
+    out = _run(capsys, "--db", db, "brief", "AcmeWidget", "--exclude-origin", "cli")
+    assert out["total"] == 1  # the two cli-seeded rows are out; only opencode remains here

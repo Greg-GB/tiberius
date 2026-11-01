@@ -32,7 +32,7 @@ FACT_STORE_SCHEMA = {
     "description": (
         "Deep structured memory with algebraic reasoning. Use alongside the memory tool — memory for always-on "
         "context, fact_store for deep recall and compositional queries.\n\nACTIONS (simple → powerful):\n"
-        "• add — Store a fact the user would expect you to remember. When a near-identical existing fact exists it is returned as possible_duplicates with a note — remove the older one if it's a true duplicate.\n• search — Keyword lookup ('editor config', 'deploy process'). 'search'/'brief' also take 'categories' (IN list) and 'exclude_category' to filter the candidate pool — e.g. drop 'skill' facts that dilute generic queries.\n"
+        "• add — Store a fact the user would expect you to remember. When a near-identical existing fact exists it is returned as possible_duplicates with a note — remove the older one if it's a true duplicate.\n• search — Keyword lookup ('editor config', 'deploy process'). 'search'/'brief' also take 'categories' (IN list) and 'exclude_category' to filter the candidate pool — e.g. drop 'skill' facts that dilute generic queries. 'origin'/'exclude_origin' filter by writer (which profile:session, cli, skill-sync or opencode wrote a fact); every recall action accepts them.\n"
         "• probe — Entity recall: ALL facts about a person/thing. Pass several via the 'entities' param for the union (facts about ANY of them); 'reason' is the ALL-of-them shape.\n• related — What connects to an entity? Structural adjacency.\n"
         "• brief — One-call context pack for a task: search + entity probe, token-budgeted (whole facts only, "
         "default 300) with a window marker (how many more matches exist). Use it when starting a task instead of "
@@ -80,6 +80,10 @@ FACT_STORE_SCHEMA = {
                            "description": "Category IN-list for 'search'/'brief' (e.g. [\"user_pref\", \"project\"]). Takes precedence over 'category'. Free-form — 'skill' is legal here even though it is not in the 'category' enum."},
             "exclude_category": {"type": "string",
                                  "description": "One category to drop from 'search'/'brief' results (e.g. 'skill' when the store carries many skill facts). Applies on top of 'categories'."},
+            "origin": {"type": "string",
+                       "description": "Writer tag for recall actions ('search'/'probe'/'brief'/'related'/'reason'/'list'): only facts written by this origin (e.g. a profile:session tag, 'cli', 'skill-sync', 'opencode')."},
+            "exclude_origin": {"type": "string",
+                               "description": "Drop facts written by this origin from recall results; legacy rows with no recorded origin are kept."},
             "session": {"type": "string", "description": "'checkpoint' (required): the session id the checkpoint belongs to (e.g. the harness session id)."},
             "op": {"type": "string", "enum": ["set", "show", "clear"],
                    "description": "'checkpoint' only: the operation (default 'set'). 'set' replaces the session's active checkpoint with 'facts'; 'show' reads it; 'clear' deletes it."},
@@ -403,11 +407,25 @@ class TiberiusMemoryProvider(MemoryProvider):
         except Exception as exc:
             logger.debug("tiberius skill feedback failed: %s", exc)
 
+    def _origin(self) -> str:
+        """Writer identity stamped on every fact this provider writes (docs/provenance.md):
+        '<profile>:<8 hex of the session id>' — which profile's store and which session wrote
+        the row. Free-form, no enum (writers appear over time). Fails soft: a broken
+        hermes_constants import or a sessionless call degrades the tag, never the write."""
+        try:
+            from hermes_constants import get_hermes_home, profile_name_for_home
+            profile = profile_name_for_home(str(get_hermes_home()))
+        except Exception:
+            profile = "hermes"
+        short = "".join(c for c in (self._session_id or "").lower() if c in "0123456789abcdef")[:8]
+        return f"{profile}:{short or 'nosession'}"
+
     def on_memory_write(self, action: str, target: str, content: str) -> None:
         """Mirror built-in memory writes as facts."""
         if action == "add" and self._store and content:
             try:
-                self._store.add_fact(content, category="user_pref" if target == "user" else "general")
+                self._store.add_fact(content, category="user_pref" if target == "user" else "general",
+                                     origin=self._origin())
             except Exception as e:
                 logger.debug("Tiberius memory_write mirror failed: %s", e)
 
@@ -425,17 +443,20 @@ class TiberiusMemoryProvider(MemoryProvider):
 
     def _entity_query(self, method: str, a: dict) -> str:
         """'related': single-entity retriever queries."""
-        return _results(getattr(self._retriever, method)(a["entity"], category=a.get("category"), limit=_limit(a)))
+        return _results(getattr(self._retriever, method)(a["entity"], category=a.get("category"), limit=_limit(a),
+                                                         origin=a.get("origin"), exclude_origin=a.get("exclude_origin")))
 
     def _probe(self, a: dict) -> str:
-        """"probe": one entity (`entity`) or N-entity union (`entities`: facts linked to any of them,
+        """\"probe\": one entity (`entity`) or N-entity union (`entities`: facts linked to any of them,
         the OR counterpart of `reason`). `entities` takes precedence when present."""
         names = a.get("entities") or a["entity"]
-        return _results(self._retriever.probe(names, category=a.get("category"), limit=_limit(a)))
+        return _results(self._retriever.probe(names, category=a.get("category"), limit=_limit(a),
+                                              origin=a.get("origin"), exclude_origin=a.get("exclude_origin")))
 
     def _add(self, a: dict) -> str:
         """'add': store the fact and report near-duplicate candidates (report-only — the caller removes if it agrees)."""
-        fid = self._store.add_fact(a["content"], category=a.get("category", "general"), tags=a.get("tags", ""))
+        fid = self._store.add_fact(a["content"], category=a.get("category", "general"), tags=a.get("tags", ""),
+                                   origin=self._origin())
         out: dict = {"fact_id": fid}
         dups = self._retriever.find_duplicates(a["content"], fid)
         if dups:  # supplemental field: omitted when empty, note when present (see ARCHITECTURE.md)
@@ -470,7 +491,8 @@ class TiberiusMemoryProvider(MemoryProvider):
             "search": lambda self, a: _results(self._retriever.search(
                 a["query"], category=a.get("category"), min_trust=float(a.get("min_trust", self._min_trust)),
                 limit=_limit(a), since=a.get("since"),
-                categories=a.get("categories"), exclude_category=a.get("exclude_category"))),
+                categories=a.get("categories"), exclude_category=a.get("exclude_category"),
+                origin=a.get("origin"), exclude_origin=a.get("exclude_origin"))),
             "probe": lambda self, a: self._probe(a),
             "show": lambda self, a: self._show(a),
             "entities": lambda self, a: self._entities(a),
@@ -479,13 +501,17 @@ class TiberiusMemoryProvider(MemoryProvider):
                 budget=max(1, int(a.get("budget", 300))),
                 category=a.get("category"), min_trust=float(a.get("min_trust", self._min_trust)),
                 since=a.get("since"), categories=a.get("categories"),
-                exclude_category=a.get("exclude_category"))),
+                exclude_category=a.get("exclude_category"),
+                origin=a.get("origin"), exclude_origin=a.get("exclude_origin"))),
             "drift": lambda self, a: json.dumps(drift(
                 a["project"], self._retriever, self._store,
                 since=a.get("since"), budget=max(1, int(a.get("budget", 300))),
                 support=float(a.get("support", 0.15)))),
             "related": lambda self, a: self._entity_query("related", a),
-            "reason": lambda self, a: _results(self._retriever.reason(a["entities"], category=a.get("category"), limit=_limit(a)))
+            "reason": lambda self, a: _results(self._retriever.reason(a["entities"], category=a.get("category"),
+                                                                      limit=_limit(a),
+                                                                      origin=a.get("origin"),
+                                                                      exclude_origin=a.get("exclude_origin")))
             if a.get("entities") else tool_error("reason requires 'entities' list"),
             "contradict": lambda self, a: _results(self._retriever.contradict(category=a.get("category"), limit=_limit(a))),
             "update": lambda self, a: json.dumps({"updated": self._store.update_fact(
@@ -494,7 +520,7 @@ class TiberiusMemoryProvider(MemoryProvider):
             "remove": lambda self, a: json.dumps({"removed": self._store.remove_fact(int(a["fact_id"]))}),
             "list": lambda self, a: _results(self._store.list_facts(
                 category=a.get("category"), min_trust=float(a.get("min_trust", 0.0)), limit=_limit(a), since=a.get("since"),
-                order=a.get("order", "trust")), key="facts"),
+                order=a.get("order", "trust"), origin=a.get("origin"), exclude_origin=a.get("exclude_origin")), key="facts"),
             "stats": lambda self, a: json.dumps(self._store.stats()),
             "add_batch": lambda self, a: self._add_batch(a),
             "checkpoint": lambda self, a: self._checkpoint(a),
@@ -510,7 +536,7 @@ class TiberiusMemoryProvider(MemoryProvider):
         if not isinstance(facts, list) or not facts:
             return tool_error("add_batch requires a non-empty 'facts' list (strings or {content, category?, tags?} objects)")
         try:
-            return json.dumps(self._store.add_facts(facts))
+            return json.dumps(self._store.add_facts(facts, origin=self._origin()))
         except ValueError as e:
             return tool_error(str(e))
 
@@ -539,7 +565,7 @@ class TiberiusMemoryProvider(MemoryProvider):
                 return tool_error("checkpoint set requires a non-empty 'facts' list of non-empty strings (1-8 lines)")
             if len(facts) > 8:
                 return tool_error("checkpoint set takes at most 8 facts — a handoff, not a backup")
-            return json.dumps(self._store.set_checkpoint(session, facts))
+            return json.dumps(self._store.set_checkpoint(session, facts, origin=self._origin()))
         except ValueError as e:
             return tool_error(str(e))
 
@@ -555,7 +581,8 @@ class TiberiusMemoryProvider(MemoryProvider):
             return tool_error("supersede requires an integer 'fact_id'")
         try:
             return json.dumps(self._store.supersede(a["fact_id"], content.strip(),
-                                                    category=a.get("category"), tags=a.get("tags")))
+                                                    category=a.get("category"), tags=a.get("tags"),
+                                                    origin=self._origin()))
         except KeyError as e:
             return tool_error(f"error: {e}")
         except ValueError as e:
@@ -595,7 +622,7 @@ class TiberiusMemoryProvider(MemoryProvider):
                 continue
             for statement, category in extract_statements(content):
                 try:
-                    self._store.add_fact(statement, category=category)
+                    self._store.add_fact(statement, category=category, origin=self._origin())
                     extracted += 1
                 except Exception:
                     pass
