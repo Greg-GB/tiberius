@@ -13,6 +13,7 @@ Usage (repo dir importable as package ``tiberius``, i.e. its PARENT on PYTHONPAT
   python3 -m tiberius.cli [--db PATH] feedback <fact_id|id,id,...> helpful|unhelpful
   python3 -m tiberius.cli [--db PATH] remove <fact_id>
   python3 -m tiberius.cli [--db PATH] update <fact_id> [--content TEXT] [--tags a,b] [--category C] [--trust-delta T]
+  python3 -m tiberius.cli [--db PATH] supersede <fact_id> <content> [--category C] [--tags a,b]   # replace a fact; old row stays readable via show
   python3 -m tiberius.cli [--db PATH] list [--category C] [--min-trust T] [--since S] [--top N] [--order trust|retrieval|recent|stale]
   python3 -m tiberius.cli [--db PATH] stats
   python3 -m tiberius.cli [--db PATH] checkpoint set <session> "task: …" ["decision: …" ...]   # replace (one active per session)
@@ -292,6 +293,13 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--top", type=int, default=50)
     s.add_argument("--order", choices=["trust", "retrieval", "recent", "stale"], default="trust",
                    help="ordering: trust (default), retrieval (most-recalled first), recent (newest first), stale (oldest-updated first)")
+    s.add_argument("--include-superseded", action="store_true",
+                   help="include superseded (hidden from recall) rows")
+    s = sub.add_parser("supersede", help="replace a fact; the old row stays readable via show (docs/supersede.md)")
+    s.add_argument("fact_id", type=int)
+    s.add_argument("content", help="the replacement statement (one fact, present tense)")
+    s.add_argument("--category")
+    s.add_argument("--tags", help="comma-separated tags for the replacement")
     sub.add_parser("stats", help="store orientation: totals, category mix, trust buckets, stale count")
     s = sub.add_parser("checkpoint", help="session handoff: one active checkpoint per session (docs/checkpoint.md)")
     csub = s.add_subparsers(dest="cp_op", required=True)
@@ -400,12 +408,23 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
             print(json.dumps({"session": a.session, "cleared": store.delete_by_tag(tag)}))
             return 0
+        elif a.cmd == "supersede":
+            try:
+                print(json.dumps(store.supersede(a.fact_id, a.content,
+                                                 category=a.category, tags=a.tags)))
+                return 0
+            except KeyError as exc:
+                print(json.dumps({"error": f"fact_id {a.fact_id} not found"}))  # same contract as remove/update
+                return 1
+            except ValueError as exc:
+                print(json.dumps({"error": str(exc)}))
+                return 1
         elif a.cmd == "stats":
             print(json.dumps(store.stats()))
             return 0
         elif a.cmd == "list":
             rows = store.list_facts(category=a.category, min_trust=a.min_trust, limit=a.top, since=a.since,
-                                    order=a.order)
+                                    order=a.order, include_superseded=a.include_superseded)
         elif a.cmd == "entities":
             # Output contract (docs/entities.md): a bare JSON array — one object per entity,
             # not the {"results": ...} wrapper the fact-browsing commands use.

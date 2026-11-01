@@ -508,3 +508,96 @@ def test_checkpoint_set_bounds(tmp_path):
     with pytest.raises(ValueError):
         store.set_checkpoint("a,b", ["task: comma session"])
     store.close()
+
+
+def test_supersede_roundtrip_pointer_and_hiding(tmp_path):
+    """docs/supersede.md: the old row keeps its row but is hidden from the
+    default list, gets superseded_by/superseded_at, and stays readable via
+    get_fact; the replacement is live."""
+    store = MemoryStore(str(tmp_path / "m.db"), hrr_dim=64)
+    old_id = store.add_fact("The AcmeWidget service listens on port 7777.")
+    res = store.supersede(old_id, "The AcmeWidget service now listens on port 8081.")
+    assert res["superseded_fact_id"] == old_id
+    assert res["new_fact_id"] != old_id
+    assert res["superseded_at"]
+    old = store.get_fact(old_id)
+    assert old["superseded_by"] == res["new_fact_id"]
+    assert old["superseded_at"] == res["superseded_at"]
+    assert store.get_fact(res["new_fact_id"])["superseded_by"] is None
+    default_ids = {r["fact_id"] for r in store.list_facts()}
+    assert old_id not in default_ids
+    assert res["new_fact_id"] in default_ids
+    included = {r["fact_id"] for r in store.list_facts(include_superseded=True)}
+    assert old_id in included
+    store.close()
+
+
+def test_supersede_chain_single_hop(tmp_path):
+    """A superseded fact may be superseded again: it keeps pointing at its
+    FIRST replacement (single-hop history — show follows one link)."""
+    store = MemoryStore(str(tmp_path / "m.db"), hrr_dim=64)
+    a = store.add_fact("The AcmeWidget service listens on port 7777.")
+    b = store.supersede(a, "The AcmeWidget service now listens on port 8081.")["new_fact_id"]
+    c = store.supersede(b, "The AcmeWidget service now listens on port 9090.")["new_fact_id"]
+    assert store.get_fact(a)["superseded_by"] == b
+    assert store.get_fact(b)["superseded_by"] == c
+    assert store.get_fact(c)["superseded_by"] is None
+    assert {r["fact_id"] for r in store.list_facts()} == {c}
+    store.close()
+
+
+def test_supersede_errors(tmp_path):
+    """Unknown id raises KeyError; empty content, content equal to the
+    target's own content, and content equal to any other fact's content all
+    raise ValueError (the UNIQUE path would otherwise hand back a foreign
+    fact_id as the 'replacement')."""
+    store = MemoryStore(str(tmp_path / "m.db"), hrr_dim=64)
+    a = store.add_fact("The AcmeWidget service listens on port 7777.")
+    store.add_fact("The ZebraBelt service listens on port 5555.")
+    with pytest.raises(KeyError):
+        store.supersede(99999, "A brand new statement about nothing.")
+    with pytest.raises(ValueError):
+        store.supersede(a, "   ")
+    with pytest.raises(ValueError):
+        store.supersede(a, "The AcmeWidget service listens on port 7777.")
+    with pytest.raises(ValueError, match="matches fact"):
+        store.supersede(a, "The ZebraBelt service listens on port 5555.")
+    # The failed attempts left no replacement rows behind.
+    assert len(store.list_facts(include_superseded=True)) == 2
+    store.close()
+
+
+def test_supersede_migration_adds_columns(tmp_path):
+    """A pre-supersede database (created with the older schema) gains both
+    columns on open; fresh databases already have them."""
+    import sqlite3
+    from hermes_plugin_tiberius.store import _SCHEMA
+    db = str(tmp_path / "legacy.db")
+    conn = sqlite3.connect(db)
+    conn.executescript(_SCHEMA)
+    conn.close()
+    cols = {r[1] for r in sqlite3.connect(db).execute("PRAGMA table_info(facts)").fetchall()}
+    assert "superseded_by" not in cols  # sanity: _SCHEMA predates the migration
+    store = MemoryStore(db, hrr_dim=64)
+    cols = {r[1] for r in store._conn.execute("PRAGMA table_info(facts)").fetchall()}
+    assert {"superseded_by", "superseded_at"} <= cols
+    store.close()
+
+
+def test_supersede_replacement_carries_category_tags_old_row_untouched(tmp_path):
+    """The replacement is a normal add (category/tags applied, entities
+    extracted from the new content); the old row's content, entities, and
+    trust are untouched by the pointer write."""
+    store = MemoryStore(str(tmp_path / "m.db"), hrr_dim=64)
+    old_id = store.add_fact("The AcmeWidget service listens on port 7777.")
+    old_before = store.get_fact(old_id)
+    res = store.supersede(old_id, "The ZebraBelt service now listens on port 6666.",
+                          category="tool", tags="ports,infra")
+    new = store.get_fact(res["new_fact_id"])
+    assert new["category"] == "tool"
+    assert new["tags"] == "ports,infra"
+    assert [e["name"] for e in new["entities"]], "entities extracted from the new content"
+    old_after = store.get_fact(old_id)
+    for key in ("content", "category", "tags", "trust_score", "entities"):
+        assert old_after[key] == old_before[key]
+    store.close()

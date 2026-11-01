@@ -187,3 +187,16 @@ def test_brief_entity_tier_skips_checkpoint_facts(tmp_path, capsys):
     assert normal["fact_id"] in ids
     assert cp_id not in ids
     assert out["entity_only"] == 0
+
+
+def test_brief_pool_excludes_superseded_facts(tmp_path, capsys):
+    """docs/supersede.md: a superseded fact is out of the pool, and 'total'
+    describes the same hidden pool, and the replacement is what surfaces."""
+    db = str(tmp_path / "m.db")
+    ids = _seed(capsys, db, n=3)
+    _run(capsys, "--db", db, "supersede", str(ids[0]),
+         "AcmeWidget crate line 0 ships to the docks on Wednesdays.")
+    out = _run(capsys, "--db", db, "brief", "AcmeWidget")
+    assert out["total"] == 3  # the superseded line is out of the marker too
+    contents = {r["content"] for r in out["facts"]}
+    assert "AcmeWidget crate line 0 ships to the docks on Tuesdays." not in contents

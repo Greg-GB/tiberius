@@ -374,3 +374,40 @@ def test_cli_checkpoint_bounds_error(tmp_path, capsys):
     assert rc == 1
     assert "1-8" in out["error"]
     assert _run(capsys, "--db", db, "checkpoint", "show", "s1")["count"] == 0
+
+
+def test_cli_supersede_roundtrip_and_list_flag(tmp_path, capsys):
+    """docs/supersede.md via the CLI: supersede replaces a fact, the old row
+    is hidden from list by default, --include-superseded shows it, show still
+    returns it with the pointer."""
+    db = str(tmp_path / "m.db")
+    fid = _run(capsys, "--db", db, "add", "The AcmeWidget service listens on port 7777.")["fact_id"]
+    out = _run(capsys, "--db", db, "supersede", str(fid),
+               "The AcmeWidget service now listens on port 8081.",
+               "--category", "tool", "--tags", "ports,infra")
+    assert out["superseded_fact_id"] == fid
+    assert out["new_fact_id"] != fid
+    assert _run(capsys, "--db", db, "show", str(fid))["fact"]["superseded_by"] == out["new_fact_id"]
+    listed = _run(capsys, "--db", db, "list")["results"]
+    assert all(r["fact_id"] != fid for r in listed)
+    included = _run(capsys, "--db", db, "list", "--include-superseded")["results"]
+    assert {r["fact_id"] for r in included} == {fid, out["new_fact_id"]}
+    by_id = {r["fact_id"]: r for r in included}
+    assert by_id[fid]["superseded_by"] == out["new_fact_id"]
+    assert by_id[out["new_fact_id"]]["superseded_by"] is None
+
+
+def test_cli_supersede_errors(tmp_path, capsys):
+    """Unknown id and duplicate content are JSON errors with exit 1 — same
+    contract as remove/update."""
+    db = str(tmp_path / "m.db")
+    fid = _run(capsys, "--db", db, "add", "The AcmeWidget service listens on port 7777.")["fact_id"]
+    rc = cli.main(["--db", db, "supersede", "999", "A brand new statement."])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert "not found" in out["error"]
+    rc = cli.main(["--db", db, "supersede", str(fid), "The AcmeWidget service listens on port 7777."])
+    out = json.loads(capsys.readouterr().out)
+    assert rc == 1
+    assert "content" in out["error"]
+    assert len(_run(capsys, "--db", db, "list", "--include-superseded")["results"]) == 1

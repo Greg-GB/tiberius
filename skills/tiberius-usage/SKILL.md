@@ -1,6 +1,6 @@
 ---
 name: tiberius-usage
-description: "Use when local memory tools are available (search / brief / drift / probe / show / entities / related / reason / add / add_batch / feedback / update / remove / list / stats / checkpoint). Recall before answering questions that may already be known; store only durable facts; rate recall quality after use; checkpoint session state at compaction."
+description: "Use when local memory tools are available (search / brief / drift / probe / show / entities / related / reason / add / add_batch / feedback / update / remove / supersede / list / stats / checkpoint). Recall before answering questions that may already be known; store only durable facts; rate recall quality after use; checkpoint session state at compaction."
 ---
 
 # Using Tiberius memory effectively
@@ -109,6 +109,14 @@ projects, and tools. Nothing leaves the machine.
   of re-deriving state from prose. One active checkpoint per session: `set`
   replaces, `clear` deletes. Checkpoint facts are session state — `brief`
   never injects them into a pack.
+- **Supersede stale facts instead of remove+add.** When a fact is still true
+  in shape but stale in value (a version, a port, a 'current' pointer),
+  `supersede` the fact_id with the replacement statement: the old row is
+  hidden from recall but stays readable via `show` with
+  `superseded_by`/`superseded_at`, and `list --include-superseded` shows the
+  history. `remove`+`add` loses the old text entirely; `update` keeps the id
+  but also erases it. The replacement statement must differ from every
+  existing fact.
 
 ## Feedback — train the store
 

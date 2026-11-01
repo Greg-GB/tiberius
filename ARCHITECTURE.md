@@ -238,14 +238,14 @@ user text into candidate facts — one match per category:
   directly. Normalizes a concrete own-profile db path back to the
   `$HERMES_HOME/...` placeholder so config stays portable.
 - Tools: `fact_store` (add/add_batch/search/probe/show/entities/related/reason/contradict/update/
-  remove/list/stats/checkpoint — the full surface) and `fact_feedback` (single `fact_id` or
+  remove/supersede/list/stats/checkpoint — the full surface) and `fact_feedback` (single `fact_id` or
   batch `fact_ids`). `handle_tool_call`
   converts `KeyError` → 'missing argument' errors and any exception into
   `tool_error` (the agent sees a structured error, never a crash).
 
 **CLI (`cli.py`).** The subprocess surface. DB resolution: `--db` >
 `$TIBERIUS_DB` > `~/.tiberius/memory.db`. Commands: search/probe/show/entities/related/
-reason/contradict/add/add-batch/feedback/remove/update/list/stats/checkpoint/extract. Contract: **JSON on
+reason/contradict/add/add-batch/feedback/remove/update/supersede/list/stats/checkpoint/extract. Contract: **JSON on
 stdout, exit 0**; errors (unknown fact_id, empty add content, bad `add-batch` item
 (indexed), bare `update`
 with no fields, bad `--since`, sqlite-level failures) are `{"error": ...}` +
@@ -290,7 +290,11 @@ the untested assumptions):
   likewise — unit-verified the same way, and runtime-verified against live
   OpenCode 2.0.28 (2026-10-30); the `memory_search` / `memory_brief`
   `since` windows (`docs/since.md`) likewise — unit-verified the same way,
-  and runtime-verified against live OpenCode 2.0.28 (2026-10-30).
+  and runtime-verified against live OpenCode 2.0.28 (2026-10-30);
+  `memory_supersede` (fact replacement with hidden history,
+  `docs/supersede.md`) likewise — unit-verified as the CLI subcommand, the
+  plugin tool, and the provider's `fact_store(action='supersede')`
+  (2026-11-01).
 - `context` hook: searches the last user message text and pushes top facts
   into the system prompt. Default: per-turn — every **new** user message is
   searched (per-session `lastSearched` — later model calls in the same turn

@@ -47,6 +47,9 @@ FACT_STORE_SCHEMA = {
         "• checkpoint — Session handoff: one active checkpoint per session (task/decisions/next as 1-8 short lines). "
         "op 'set' (default, takes 'facts' + 'session') replaces it; 'show' reads; 'clear' deletes. "
         "Set it at compaction or before ending a long task; the next session shows it instead of re-deriving state from prose.\n"
+        "• supersede — Replace a stale fact: inserts a replacement (normal add semantics) and hides the old one "
+        "from recall; the old row stays readable via 'show' with superseded_by/superseded_at. 'content' is the "
+        "replacement statement (must differ from every existing fact); 'category'/'tags' optional.\n"
         "• contradict — Memory hygiene: find facts making conflicting claims.\n• update/remove/list — CRUD operations.\n\n"
         "IMPORTANT: Before answering anything about the user, the environment, or the project, "
         "ALWAYS recall first (probe for entities, search for topics, reason across both) — "
@@ -55,8 +58,8 @@ FACT_STORE_SCHEMA = {
     "parameters": {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["add", "add_batch", "search", "probe", "show", "entities", "brief", "drift", "related", "reason", "contradict", "update", "remove", "list", "stats", "checkpoint"]},
-            "content": {"type": "string", "description": "Fact content (required for 'add')."},
+            "action": {"type": "string", "enum": ["add", "add_batch", "search", "probe", "show", "entities", "brief", "drift", "related", "reason", "contradict", "update", "remove", "list", "stats", "checkpoint", "supersede"]},
+            "content": {"type": "string", "description": "Fact content (required for 'add'; for 'supersede' the replacement statement)."},
             "query": {"type": "string", "description": "Search query (required for 'search'/'brief')."},
             "facts": {"type": "array", "minItems": 1,
                       "items": {"anyOf": [{"type": "string"},
@@ -71,7 +74,7 @@ FACT_STORE_SCHEMA = {
             "support": {"type": "number", "description": "'drift': min overlap coefficient for a state fact to count as a plan-claim echo (default: 0.15)."},
             "entity": {"type": "string", "description": "Entity name for 'probe'/'related'. 'probe' also accepts several names via 'entities' (union: any)."},
             "entities": {"type": "array", "items": {"type": "string"}, "description": "Entity names for 'reason' (facts linked to ALL of them). For 'probe': union — facts linked to ANY of them (takes precedence over 'entity')."},
-            "fact_id": {"type": "integer", "description": "Fact ID for 'show'/'update'/'remove'."},
+            "fact_id": {"type": "integer", "description": "Fact ID for 'show'/'update'/'remove'/'supersede'."},
             "category": {"type": "string", "enum": ["user_pref", "project", "tool", "general"]},
             "categories": {"type": "array", "items": {"type": "string"},
                            "description": "Category IN-list for 'search'/'brief' (e.g. [\"user_pref\", \"project\"]). Takes precedence over 'category'. Free-form — 'skill' is legal here even though it is not in the 'category' enum."},
@@ -495,6 +498,7 @@ class TiberiusMemoryProvider(MemoryProvider):
             "stats": lambda self, a: json.dumps(self._store.stats()),
             "add_batch": lambda self, a: self._add_batch(a),
             "checkpoint": lambda self, a: self._checkpoint(a),
+            "supersede": lambda self, a: self._supersede(a),
         }),
         "fact_feedback": lambda self, a: self._feedback(a),
     }
@@ -536,6 +540,24 @@ class TiberiusMemoryProvider(MemoryProvider):
             if len(facts) > 8:
                 return tool_error("checkpoint set takes at most 8 facts — a handoff, not a backup")
             return json.dumps(self._store.set_checkpoint(session, facts))
+        except ValueError as e:
+            return tool_error(str(e))
+
+    def _supersede(self, a: dict) -> str:
+        """Replace a fact: insert a replacement and point the old fact at it
+        (docs/supersede.md). The old row stays readable via 'show'."""
+        if not self._store:
+            return tool_error("store unavailable")
+        content = a.get("content")
+        if not isinstance(content, str) or not content.strip():
+            return tool_error("supersede requires a non-empty 'content' string (the replacement statement)")
+        if not isinstance(a.get("fact_id"), int) or a["fact_id"] < 1:
+            return tool_error("supersede requires an integer 'fact_id'")
+        try:
+            return json.dumps(self._store.supersede(a["fact_id"], content.strip(),
+                                                    category=a.get("category"), tags=a.get("tags")))
+        except KeyError as e:
+            return tool_error(f"error: {e}")
         except ValueError as e:
             return tool_error(str(e))
 

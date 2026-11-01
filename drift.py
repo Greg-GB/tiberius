@@ -33,7 +33,7 @@ def _plan_facts(project: str, conn) -> list[dict]:
            "f.helpful_count, f.created_at, f.updated_at FROM facts f "
            "JOIN fact_entities fe ON fe.fact_id = f.fact_id "
            "JOIN entities e ON e.entity_id = fe.entity_id "
-           f"WHERE e.name = ? COLLATE NOCASE AND {_PLAN_TAG_SQL} ORDER BY f.fact_id")
+           f"WHERE e.name = ? COLLATE NOCASE AND {_PLAN_TAG_SQL} AND f.superseded_by IS NULL ORDER BY f.fact_id")
     return [dict(r) for r in conn.execute(sql, (project,)).fetchall()]
 
 

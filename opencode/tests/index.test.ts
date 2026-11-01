@@ -437,7 +437,7 @@ test("skill options unset: zero skill behavior (no skill calls, no skill tools, 
     assert.equal(ev.system.length, 1);
     assert.ok(ev.system[0].text.startsWith("Relevant stored memory"));
     assert.ok(!h.tools.some((t) => t.name.startsWith("memory_skill_")));
-    assert.equal(h.tools.length, 16);
+    assert.equal(h.tools.length, 17);
   });
 });
 
@@ -518,7 +518,7 @@ test("skill tools are registered only when skillDirs is set", async () => {
     const names = h.tools.map((t) => t.name);
     assert.ok(names.includes("memory_skill_search"));
     assert.ok(names.includes("memory_skill_load"));
-    assert.equal(h.tools.length, 18);
+    assert.equal(h.tools.length, 19);
   });
 });
 
@@ -738,6 +738,19 @@ test("memory_checkpoint sends checkpoint argv per op and passes the result throu
       A("checkpoint", "set", "ses1"),
       A("checkpoint", "show", "ses1"),
       A("checkpoint", "clear", "ses1"),
+    ]);
+  });
+});
+
+test("memory_supersede sends supersede argv with optional flags and passes the result through", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_supersede");
+    const out = await tool.execute({ fact_id: 7, content: "The service now runs on port 8081", tags: "ports,infra", category: "tool" });
+    assert.ok(JSON.parse(out.content)); // the fake engine's echo, passed through as JSON
+    await tool.execute({ fact_id: 8, content: "A second replacement statement" });
+    assert.deepEqual(logEntries().map((e) => e.argv), [
+      A("supersede", "7", "The service now runs on port 8081", "--tags", "ports,infra", "--category", "tool"),
+      A("supersede", "8", "A second replacement statement"),
     ]);
   });
 });
