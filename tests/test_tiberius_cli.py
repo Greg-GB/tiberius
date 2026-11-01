@@ -456,3 +456,20 @@ def test_cli_search_origin_and_stats_breakdown(tmp_path, capsys):
     assert out["results"][0]["origin"] == "cli"
     out = _run(capsys, "--db", db, "stats")
     assert out["by_origin"] == {"null": 1, "cli": 1}
+
+
+def test_cli_merge_roundtrip(tmp_path, capsys):
+    """docs/merge.md via the CLI: fold from into the survivor — the merged
+    row is returned, the from row is gone from list, and errors are the JSON
+    error envelope with a nonzero exit."""
+    db = str(tmp_path / "m.db")
+    survivor = _run(capsys, "--db", db, "add", "The AcmeWidget service listens on port 7777.")["fact_id"]
+    other = _run(capsys, "--db", db, "add", "The ZetaCorp yard stores RelayX spares.")["fact_id"]
+    out = _run(capsys, "--db", db, "merge", str(other), str(survivor))
+    assert out["fact_id"] == survivor
+    assert "RelayX" in out["content"] and "AcmeWidget" in out["content"]
+    assert all(r["fact_id"] != other for r in _run(capsys, "--db", db, "list")["results"])
+    out = _run(capsys, "--db", db, "merge", str(survivor), str(survivor))
+    assert "distinct" in out["error"]
+    out = _run(capsys, "--db", db, "merge", "99999", str(survivor))
+    assert "not found" in out["error"]

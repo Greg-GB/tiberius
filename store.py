@@ -425,6 +425,70 @@ class MemoryStore:
             ts = self._one("SELECT superseded_at FROM facts WHERE fact_id = ?", (fact_id,))["superseded_at"]
         return {"superseded_fact_id": fact_id, "new_fact_id": new_id, "superseded_at": ts}
 
+    def merge_fact(self, from_fact_id: int, into_fact_id: int) -> dict:
+        """Fold `from` into `into` atomically (docs/merge.md): content is the
+        survivor's plus the from's (newline-joined concat — no rewrite; 'update'
+        rewrites afterwards if wanted), trust is the max, entities and tags are
+        the union, and the from row (and its links) is deleted. `into`'s
+        fact_id survives; the merged row is returned. One transaction: a
+        failure anywhere leaves the store unchanged — no entity link the from
+        fact owned is ever silently dropped (the hazard update+remove has).
+        Raises KeyError for an unknown id, ValueError for identical ids, for a
+        superseded participant (superseded rows are history — 'show' them
+        first) or when the merged content already is another fact."""
+        if from_fact_id == into_fact_id:
+            raise ValueError("from and into must be distinct facts")
+        with self._lock:
+            a = self._one("SELECT fact_id, content, tags, trust_score, superseded_by "
+                          "FROM facts WHERE fact_id = ?", (from_fact_id,))
+            b = self._one("SELECT fact_id, content, tags, trust_score, superseded_by "
+                          "FROM facts WHERE fact_id = ?", (into_fact_id,))
+            if a is None:
+                raise KeyError(f"fact {from_fact_id} not found")
+            if b is None:
+                raise KeyError(f"fact {into_fact_id} not found")
+            if a["superseded_by"] is not None:
+                raise ValueError(f"fact {from_fact_id} is superseded (history) — "
+                                 f"'show' it first; merge acts on live facts")
+            if b["superseded_by"] is not None:
+                raise ValueError(f"fact {into_fact_id} is superseded (history) — "
+                                 f"'show' it first; merge acts on live facts")
+            merged = b["content"] + "\n" + a["content"]
+            dup = self._one("SELECT fact_id FROM facts WHERE content = ? AND fact_id != ?",
+                            (merged, into_fact_id))
+            if dup is not None:
+                raise ValueError(f"merged content matches fact {dup['fact_id']} exactly — "
+                                 f"remove that fact first")
+
+            def taglist(t: str | None) -> list[str]:
+                return [x.strip() for x in (t or "").split(",") if x.strip()]
+            tags = ",".join(dict.fromkeys(taglist(b["tags"]) + taglist(a["tags"])))
+            trust = max(a["trust_score"], b["trust_score"])
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                self._conn.execute(
+                    "UPDATE facts SET content = ?, trust_score = ?, tags = ?, "
+                    "updated_at = CURRENT_TIMESTAMP WHERE fact_id = ?",
+                    (merged, trust, tags, into_fact_id))
+                for (entity_id,) in self._conn.execute(
+                        "SELECT entity_id FROM fact_entities WHERE fact_id = ?",
+                        (from_fact_id,)).fetchall():
+                    self._conn.execute(
+                        "INSERT OR IGNORE INTO fact_entities (fact_id, entity_id) VALUES (?, ?)",
+                        (into_fact_id, entity_id))
+                self._conn.execute("DELETE FROM fact_entities WHERE fact_id = ?", (from_fact_id,))
+                self._conn.execute("DELETE FROM facts WHERE fact_id = ?", (from_fact_id,))
+                self._conn.commit()
+            except Exception:
+                if self._conn.in_transaction:
+                    self._conn.rollback()
+                raise
+            self._compute_hrr_vector(into_fact_id, merged)
+        row = self.get_fact(into_fact_id)
+        if row is None:
+            raise KeyError(f"fact {into_fact_id} not found")  # unreachable: we just committed it
+        return row
+
     def list_facts(self, category: str | None = None, min_trust: float = 0.0, limit: int = 50,
                    since: str | None = None, order: str = "trust", include_superseded: bool = False,
                    origin: str | None = None, exclude_origin: str | None = None) -> list[dict]:

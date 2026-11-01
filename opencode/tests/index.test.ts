@@ -437,7 +437,7 @@ test("skill options unset: zero skill behavior (no skill calls, no skill tools, 
     assert.equal(ev.system.length, 1);
     assert.ok(ev.system[0].text.startsWith("Relevant stored memory"));
     assert.ok(!h.tools.some((t) => t.name.startsWith("memory_skill_")));
-    assert.equal(h.tools.length, 17);
+    assert.equal(h.tools.length, 18);
   });
 });
 
@@ -518,7 +518,7 @@ test("skill tools are registered only when skillDirs is set", async () => {
     const names = h.tools.map((t) => t.name);
     assert.ok(names.includes("memory_skill_search"));
     assert.ok(names.includes("memory_skill_load"));
-    assert.equal(h.tools.length, 19);
+    assert.equal(h.tools.length, 20);
   });
 });
 
@@ -767,6 +767,16 @@ test("memory_supersede sends supersede argv with optional flags and passes the r
       A("supersede", "7", "The service now runs on port 8081", "--tags", "ports,infra", "--category", "tool", "--origin", "opencode"),
       A("supersede", "8", "A second replacement statement", "--origin", "opencode"),
     ]);
+  });
+});
+
+test("memory_merge folds one fact into another with merge argv", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    const tool = h.tools.find((t) => t.name === "memory_merge");
+    assert.ok(tool);
+    const out = await tool.execute({ from_fact_id: 9, into_fact_id: 4 });
+    assert.ok(JSON.parse(out.content)); // the fake engine's echo, passed through as JSON
+    assert.deepEqual(logEntries().map((e) => e.argv), [A("merge", "9", "4")]);
   });
 });
 

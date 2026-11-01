@@ -97,7 +97,7 @@ Files:
   and session-end extraction).
 - **Full operation parity**: every adapter exposes the same surface — search / probe /
   show / entities / drift / related / reason, plus CRUD and hygiene (`add`,
-  `add_batch`, `update`, `remove`, `supersede`, `list`, `stats`, `contradict`,
+  `add_batch`, `update`, `remove`, `supersede`, `merge`, `list`, `stats`, `contradict`,
   `feedback`) and session handoff (`checkpoint`, `docs/checkpoint.md`). `list`,
   `search`, and `brief` take `--since` time filtering (`created_at` at or
   after; `docs/since.md`) and `--categories` / `--exclude-category` pool
@@ -121,6 +121,13 @@ Files:
   (NULL-safe: legacy rows survive exclusion), `stats` reports the per-origin
   breakdown, and `show`/`list` rows carry the field for audit
   (`docs/provenance.md`).
+- **Merge**: `merge` folds one fact into another — the from row is deleted,
+  its content concatenated onto the survivor, trust = max, entities and tags
+  = the union. One transaction: a failure anywhere rolls back, so no entity
+  link is ever silently dropped (the hazard of `update` + `remove`). The
+  survivor's fact_id is returned with the merged row; superseded facts
+  can't participate. CLI `merge <from> <into>`, OpenCode `memory_merge`,
+  provider `fact_store(action='merge')` (`docs/merge.md`).
 - **Quality gates**: the core test suite (runs anywhere — `python -m pytest -q`),
   the plugin unit tests, Hermes-provider tests (need a Hermes environment), and
   a 19-query golden recall eval (`eval/`) that any retrieval change must not
@@ -312,11 +319,11 @@ restart.
 
 ### What the agent gets
 
-- **Seventeen tools**: `memory_search` / `memory_brief` / `memory_drift` /
+- **Eighteen tools**: `memory_search` / `memory_brief` / `memory_drift` /
   `memory_probe` / `memory_show` / `memory_entities` / `memory_related` /
   `memory_reason` / `memory_add` / `memory_add_batch` /
   `memory_feedback` / `memory_update` / `memory_remove` / `memory_list` /
-  `memory_stats` / `memory_checkpoint` / `memory_supersede` —
+  `memory_stats` / `memory_checkpoint` / `memory_supersede` / `memory_merge` —
   the same operation surface as the Hermes provider (`brief` and `drift`
   are among its `fact_store` actions), where `memory_brief` is the one-call
   plugin form: a token-budgeted context pack for a task — search ∪ entity
@@ -408,6 +415,7 @@ python3 -m tiberius.cli --db PATH feedback <id|id,...> helpful|unhelpful
 python3 -m tiberius.cli --db PATH remove <id>
 python3 -m tiberius.cli --db PATH update <id> [--content TEXT] [--tags a,b] [--category C] [--trust-delta T]
 python3 -m tiberius.cli --db PATH supersede <id> "replacement statement" [--category C] [--tags a,b]
+python3 -m tiberius.cli --db PATH merge <from_id> <into_id>
 python3 -m tiberius.cli --db PATH list [--category C] [--min-trust T] [--since 30m|2h|7d|2w|YYYY-MM-DD] [--top N] [--order trust|retrieval|recent|stale] [--origin O] [--exclude-origin O]
 python3 -m tiberius.cli --db PATH stats
 python3 -m tiberius.cli --db PATH checkpoint set <session> "task: …" ["decision: …" ...]

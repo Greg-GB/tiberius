@@ -238,14 +238,14 @@ user text into candidate facts — one match per category:
   directly. Normalizes a concrete own-profile db path back to the
   `$HERMES_HOME/...` placeholder so config stays portable.
 - Tools: `fact_store` (add/add_batch/search/probe/show/entities/related/reason/contradict/update/
-  remove/supersede/list/stats/checkpoint — the full surface) and `fact_feedback` (single `fact_id` or
+  remove/supersede/merge/list/stats/checkpoint — the full surface) and `fact_feedback` (single `fact_id` or
   batch `fact_ids`). `handle_tool_call`
   converts `KeyError` → 'missing argument' errors and any exception into
   `tool_error` (the agent sees a structured error, never a crash).
 
 **CLI (`cli.py`).** The subprocess surface. DB resolution: `--db` >
 `$TIBERIUS_DB` > `~/.tiberius/memory.db`. Commands: search/probe/show/entities/related/
-reason/contradict/add/add-batch/feedback/remove/update/supersede/list/stats/checkpoint/extract. Contract: **JSON on
+reason/contradict/add/add-batch/feedback/remove/update/supersede/merge/list/stats/checkpoint/extract. Contract: **JSON on
 stdout, exit 0**; errors (unknown fact_id, empty add content, bad `add-batch` item
 (indexed), bare `update`
 with no fields, bad `--since`, sqlite-level failures) are `{"error": ...}` +
@@ -263,6 +263,13 @@ Provenance (`docs/provenance.md`): every fact records its writer in
 `--origin` / `--exclude-origin` (the exclude is NULL-safe — it keeps legacy
 rows); write commands take `--origin` (default `cli`); `stats` reports the
 per-origin breakdown and `show`/`list` rows carry the field.
+Merge (`docs/merge.md`): `store.merge_fact(from, into)` folds one fact into
+another in one transaction — the survivor's content gets the from's
+appended (newline-joined), trust is the max, entities and tags are the
+union, and the from row with its links is deleted; a failure anywhere rolls
+back, so no entity link is silently dropped (the hazard of `update` +
+`remove`). Superseded facts can't participate (superseded rows are history).
+The survivor's HRR vector is recomputed for the merged content.
 
 **Supplemental output pattern.** Response fields beyond the primary result (e.g.
 `add`'s `possible_duplicates`) ship as a three-piece set: (1) **omitted when empty**
@@ -300,7 +307,8 @@ the untested assumptions):
   `memory_supersede` (fact replacement with hidden history,
   `docs/supersede.md`) likewise — unit-verified as the CLI subcommand, the
   plugin tool, and the provider's `fact_store(action='supersede')`
-  (2026-11-01).
+  (2026-11-01); `memory_merge` (atomic fact folding, `docs/merge.md`)
+  likewise — unit-verified the same way (2026-11-01).
 - `context` hook: searches the last user message text and pushes top facts
   into the system prompt. Default: per-turn — every **new** user message is
   searched (per-session `lastSearched` — later model calls in the same turn

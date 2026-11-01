@@ -1,6 +1,6 @@
 ---
 name: tiberius-usage
-description: "Use when local memory tools are available (search / brief / drift / probe / show / entities / related / reason / add / add_batch / feedback / update / remove / supersede / list / stats / checkpoint). Recall before answering questions that may already be known; store only durable facts; rate recall quality after use; checkpoint session state at compaction."
+description: "Use when local memory tools are available (search / brief / drift / probe / show / entities / related / reason / add / add_batch / feedback / update / remove / supersede / merge / list / stats / checkpoint). Recall before answering questions that may already be known; store only durable facts; rate recall quality after use; checkpoint session state at compaction."
 ---
 
 # Using Tiberius memory effectively
@@ -121,6 +121,14 @@ projects, and tools. Nothing leaves the machine.
   history. `remove`+`add` loses the old text entirely; `update` keeps the id
   but also erases it. The replacement statement must differ from every
   existing fact.
+- **Merge near-duplicate facts instead of update+remove.** When two live
+  facts say overlapping things and both should stay, `merge` the from fact
+  into the survivor: its content is concatenated on, trust is the max,
+  entities and tags are the union, and the from row is deleted — all in one
+  transaction, so no entity link is ever silently dropped (the hazard of
+  `update`+`remove`). The survivor's fact_id is what comes back; `update`
+  it afterwards if you want a rewritten single statement. Superseded facts
+  can't participate — they are history, not live facts.
 
 ## Feedback — train the store
 

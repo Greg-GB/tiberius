@@ -663,3 +663,100 @@ def test_stats_by_origin_counts_with_null_bucket(tmp_path):
     store.add_fact("Stats row written by opencode.", origin="opencode")
     assert store.stats()["by_origin"] == {"null": 2, "cli": 2, "opencode": 1}
     store.close()
+
+
+def _entities_of(store, fact_id):
+    return {r[0] for r in store._conn.execute(
+        "SELECT entity_id FROM fact_entities WHERE fact_id = ?", (fact_id,)).fetchall()}
+
+
+def test_merge_unions_content_trust_tags_entities(tmp_path):
+    """docs/merge.md: content is the survivor's plus the from's (newline
+    joined), trust the max, entities and tags the union, the from row (and
+    its links) gone, the survivor id unchanged."""
+    store = MemoryStore(str(tmp_path / "m.db"), hrr_dim=64)
+    into = store.add_fact("The AcmeWidget service listens on port 7777.", tags="service,ports")
+    frm = store.add_fact("The ZetaCorp yard stores RelayX spares.", tags="yard")
+    e_into, e_from = _entities_of(store, into), _entities_of(store, frm)
+    store._conn.execute("UPDATE facts SET trust_score = 0.9 WHERE fact_id = ?", (into,))
+    store._conn.commit()
+    store._conn.execute("UPDATE facts SET trust_score = 0.4 WHERE fact_id = ?", (frm,))
+    store._conn.commit()
+    out = store.merge_fact(frm, into)
+    row = store.get_fact(into)
+    assert out["fact_id"] == into
+    assert row["content"] == ("The AcmeWidget service listens on port 7777.\n"
+                              "The ZetaCorp yard stores RelayX spares.")
+    assert row["trust_score"] == 0.9
+    assert "service" in row["tags"] and "yard" in row["tags"]
+    assert _entities_of(store, into) == e_into | e_from
+    assert store.get_fact(frm) is None
+    assert _entities_of(store, frm) == set()  # its links are gone, not dangling
+    vec = store._conn.execute("SELECT hrr_vector FROM facts WHERE fact_id = ?", (into,)).fetchone()[0]
+    assert vec  # recomputed for the merged content
+    store.close()
+
+
+def test_merge_is_atomic_on_mid_transaction_failure(tmp_path):
+    """A failure anywhere inside the merge transaction rolls the whole thing
+    back: both rows, trust, tags, and every entity link are exactly as
+    before (the hazard update+remove has: a dropped link)."""
+    import sqlite3
+
+    store = MemoryStore(str(tmp_path / "m.db"), hrr_dim=64)
+    into = store.add_fact("The AcmeWidget service listens on port 7777.", tags="service")
+    frm = store.add_fact("The ZetaCorp yard stores RelayX spares.", tags="yard")
+    e_into, e_from = _entities_of(store, into), _entities_of(store, frm)
+
+    class _Boom:
+        """Proxy: intercept one statement mid-merge, else forward."""
+        def __init__(self, conn):
+            self._c = conn
+
+        def execute(self, sql, params=()):
+            if sql.startswith("DELETE FROM fact_entities"):
+                raise sqlite3.OperationalError("simulated crash")
+            return self._c.execute(sql, params)
+
+        def __getattr__(self, name):
+            return getattr(self._c, name)
+
+    real = store._conn
+    store._conn = _Boom(real)
+    try:
+        with pytest.raises(sqlite3.OperationalError, match="simulated crash"):
+            store.merge_fact(frm, into)
+    finally:
+        store._conn = real
+    # Everything is exactly as before the attempted merge.
+    row_into, row_frm = store.get_fact(into), store.get_fact(frm)
+    assert row_into["content"] == "The AcmeWidget service listens on port 7777."
+    assert row_frm["content"] == "The ZetaCorp yard stores RelayX spares."
+    _tags_into = set(row_into["tags"].split(","))
+    assert "yard" not in _tags_into
+    assert _entities_of(store, into) == e_into
+    assert _entities_of(store, frm) == e_from
+    store.close()
+
+
+def test_merge_errors(tmp_path):
+    """Identical ids, unknown ids, and a superseded participant (either side)
+    all raise; the store is left untouched."""
+    store = MemoryStore(str(tmp_path / "m.db"), hrr_dim=64)
+    a = store.add_fact("The AcmeWidget dock holds two gantries.")
+    b = store.add_fact("The ZetaCorp yard stores RelayX spares.")
+    with pytest.raises(ValueError, match="distinct"):
+        store.merge_fact(a, a)
+    with pytest.raises(KeyError):
+        store.merge_fact(99999, b)
+    with pytest.raises(KeyError):
+        store.merge_fact(a, 99999)
+    store.supersede(a, "The AcmeWidget dock now holds three gantries.")
+    with pytest.raises(ValueError, match="superseded"):
+        store.merge_fact(a, b)
+    c = store.add_fact("The NimbusGate relay handles inbound calls.")
+    store.supersede(b, "The ZetaCorp yard stores RelayX spares and crates.")
+    with pytest.raises(ValueError, match="superseded"):
+        store.merge_fact(c, b)
+    assert len(store.list_facts(include_superseded=True)) == 5
+    store.close()
