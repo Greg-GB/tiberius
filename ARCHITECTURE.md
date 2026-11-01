@@ -281,6 +281,16 @@ excluded from the fact sections and counted separately. Read-only: the
 only write in hygiene is `store.prune_orphan_entities()` (the CLI
 `--apply orphans`), which deletes entities with zero linked facts —
 single-fact entities are young, not debt.
+Pool telemetry (`docs/pool-counters.md`): the `_search` wrapper captures the
+final candidate pool (after the prefix fallback, capped at `limit*3`) and
+`store.record_pool` upserts the daily `pool_stats` row (one row per UTC day:
+searches, zero_pools, sum/min/max pool) in the next WAL transaction — the
+store lock is non-reentrant, so the write can't ride the read's own.
+`stats` gains a trailing-7-day `pools` section (zero-pool rate, weighted
+avg pool, max pool); no query text is ever stored. Add-time duplicate
+detection and the hygiene scan route through `_search_impl` directly, so
+pool stats measure recall traffic only; a telemetry write failure is
+swallowed and never fails the search.
 
 **Supplemental output pattern.** Response fields beyond the primary result (e.g.
 `add`'s `possible_duplicates`) ship as a three-piece set: (1) **omitted when empty**

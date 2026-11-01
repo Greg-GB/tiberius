@@ -14,8 +14,11 @@ if zero pools are common, they are the fix.
 
 ## Design
 
-Instrument the one place every search flows through: `_fts_candidates`
-returns the pool; `search` counts it before rerank.
+Instrument the one place every search flows through: `_search` wraps the
+rank pass, captures the final candidate pool (after the prefix fallback,
+capped at its `limit*3`) and writes the daily row right after the rank pass
+returns — the store lock is non-reentrant, so the write happens outside the
+read lock, never inside it.
 
 New table, one row per UTC day:
 
@@ -26,14 +29,17 @@ New table, one row per UTC day:
 | `zero_pools` | pools that returned no candidates |
 | `sum_pool` / `min_pool` / `max_pool` | pool-size aggregates |
 
-Written in the same transaction the read happens (WAL; concurrent writers
-already the norm). Bounded by construction: one row per day, no query text,
-no per-query history — the store cannot grow unboundedly from telemetry.
+Written in the next WAL transaction after the read (the store lock is
+non-reentrant, so it cannot ride the read's own transaction). Bounded by
+construction: one row per day, no query text, no per-query history — the
+store cannot grow unboundedly from telemetry.
 
 Read side:
 
-- `stats` gains a `pools` section: trailing-7-day zero-pool rate, p50/p90
-  (approximated from daily aggregates), max pool.
+- `stats` gains a `pools` section: trailing-7-day zero-pool rate, weighted
+  avg pool, max pool. (Per-query p50/p90 are infeasible from daily
+  aggregates — the non-goals rule out per-query history, and the gate needs
+  the rate plus thickness.)
 - CLI: visible via `stats`; no separate subcommand.
 
 ## Decision gate
@@ -54,14 +60,17 @@ After ~1 week of real traffic:
 - No feedback coupling (whether a result was marked helpful is not joined
   into the pool counter — keep the signal single-purpose).
 - No counters for entity paths: the pool problem is a token-pool problem.
+- No counting of maintenance passes: add-time duplicate detection and the
+  hygiene scan route through `_search_impl` directly, so pool stats measure
+  recall traffic only.
 
-## Tests planned
+## Tests (shipped)
 
-- counter increments per search, day boundary rolls the row.
-- zero-pool counted when FTS returns nothing (prefix-fallback pool excluded
-  from the zero count only if it rescued candidates — decided in impl:
-  count the *final* candidate pool).
-- `stats` pools section shape with 0/1/7 days of data.
-- boundedness: 30 days of tests → 30 rows max.
-- telemetry write failure never fails the search (wrap in try/except,
-  log-only).
+- `test_record_pool_upsert_and_day_roll` — one row per UTC day; searches/
+  zero/sum/min/max aggregate in place; a new UTC day rolls a new row.
+- `test_stats_pools_section_shape` — `pools` is stable-shaped: zeros/Nones
+  with no traffic, trailing-7-day aggregates after some.
+- `test_pool_counter_counts_final_pool` — `search()` counts the final
+  candidate pool (prefix-fallback rescue is non-zero; a no-match search is a
+  zero pool); adds and `hygiene()` (duplicate-detection passes) create no
+  pool rows; a telemetry write failure never fails the search.
