@@ -4,7 +4,7 @@
   {"content": "The analytics worker runs nightly at 02:00 and posts results to the metrics database."},
   {"content": "Service dashboards live in /srv/acme/dashboards and are served on port 8120."},
   {"content": "The primary database is PostgreSQL 16 on port 5433 in the database container."},
-  {"content": "Alice owns the search team and reviews all retrieval changes."},
+  {"content": "Alice owns the search team."},
   {"content": "Bob owns infrastructure and manages the Docker hosts."},
   {"content": "The search index is rebuilt daily and takes about twelve minutes."},
   {"content": "The staging environment mirrors production but uses a separate database."},
