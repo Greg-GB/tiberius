@@ -97,7 +97,7 @@ Files:
   and session-end extraction).
 - **Full operation parity**: every adapter exposes the same surface — search / probe /
   show / entities / drift / related / reason, plus CRUD and hygiene (`add`,
-  `add_batch`, `update`, `remove`, `supersede`, `merge`, `list`, `stats`, `contradict`,
+  `add_batch`, `update`, `remove`, `supersede`, `merge`, `hygiene`, `list`, `stats`, `contradict`,
   `feedback`) and session handoff (`checkpoint`, `docs/checkpoint.md`). `list`,
   `search`, and `brief` take `--since` time filtering (`created_at` at or
   after; `docs/since.md`) and `--categories` / `--exclude-category` pool
@@ -128,6 +128,14 @@ Files:
   survivor's fact_id is returned with the merged row; superseded facts
   can't participate. CLI `merge <from> <into>`, OpenCode `memory_merge`,
   provider `fact_store(action='merge')` (`docs/merge.md`).
+- **Hygiene**: `hygiene` is the store health report — orphan entities
+  (≤1 linked fact), near-duplicate clusters (the same detector `add` runs),
+  oversized facts (over 200 words by default), low-trust facts (below 0.45
+  by default, no helpful feedback), and the superseded count. Read-only,
+  sections capped at 20 items with their total counts — the mess, and how
+  big it is. The only auto-fix is `hygiene --apply orphans` (CLI), which
+  prunes entities with zero linked facts; single-fact entities are just
+  young. Every fact-level fix is made with the report in hand (`docs/hygiene.md`).
 - **Quality gates**: the core test suite (runs anywhere — `python -m pytest -q`),
   the plugin unit tests, Hermes-provider tests (need a Hermes environment), and
   a 19-query golden recall eval (`eval/`) that any retrieval change must not
@@ -416,6 +424,7 @@ python3 -m tiberius.cli --db PATH remove <id>
 python3 -m tiberius.cli --db PATH update <id> [--content TEXT] [--tags a,b] [--category C] [--trust-delta T]
 python3 -m tiberius.cli --db PATH supersede <id> "replacement statement" [--category C] [--tags a,b]
 python3 -m tiberius.cli --db PATH merge <from_id> <into_id>
+python3 -m tiberius.cli --db PATH hygiene [--limit N] [--max-words N] [--min-trust T] [--apply orphans]
 python3 -m tiberius.cli --db PATH list [--category C] [--min-trust T] [--since 30m|2h|7d|2w|YYYY-MM-DD] [--top N] [--order trust|retrieval|recent|stale] [--origin O] [--exclude-origin O]
 python3 -m tiberius.cli --db PATH stats
 python3 -m tiberius.cli --db PATH checkpoint set <session> "task: …" ["decision: …" ...]

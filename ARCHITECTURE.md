@@ -238,14 +238,14 @@ user text into candidate facts — one match per category:
   directly. Normalizes a concrete own-profile db path back to the
   `$HERMES_HOME/...` placeholder so config stays portable.
 - Tools: `fact_store` (add/add_batch/search/probe/show/entities/related/reason/contradict/update/
-  remove/supersede/merge/list/stats/checkpoint — the full surface) and `fact_feedback` (single `fact_id` or
+  remove/supersede/merge/hygiene/list/stats/checkpoint — the full surface) and `fact_feedback` (single `fact_id` or
   batch `fact_ids`). `handle_tool_call`
   converts `KeyError` → 'missing argument' errors and any exception into
   `tool_error` (the agent sees a structured error, never a crash).
 
 **CLI (`cli.py`).** The subprocess surface. DB resolution: `--db` >
 `$TIBERIUS_DB` > `~/.tiberius/memory.db`. Commands: search/probe/show/entities/related/
-reason/contradict/add/add-batch/feedback/remove/update/supersede/merge/list/stats/checkpoint/extract. Contract: **JSON on
+reason/contradict/add/add-batch/feedback/remove/update/supersede/merge/list/stats/checkpoint/extract/hygiene. Contract: **JSON on
 stdout, exit 0**; errors (unknown fact_id, empty add content, bad `add-batch` item
 (indexed), bare `update`
 with no fields, bad `--since`, sqlite-level failures) are `{"error": ...}` +
@@ -270,6 +270,17 @@ union, and the from row with its links is deleted; a failure anywhere rolls
 back, so no entity link is silently dropped (the hazard of `update` +
 `remove`). Superseded facts can't participate (superseded rows are history).
 The survivor's HRR vector is recomputed for the merged content.
+Hygiene (`docs/hygiene.md`): `FactRetriever.hygiene(limit, max_words,
+min_trust)` is the store health report — orphan entities (fact_count ≤ 1,
+the LEFT-JOIN pattern from `list_entities`), near-duplicate clusters (the
+`find_duplicates` detector `add` runs, once per live fact, undirected pairs
+folded into connected clusters), oversized facts (live rows over
+`max_words` words), low-trust facts (below `min_trust` with
+`helpful_count = 0`), and the superseded count. Superseded rows are
+excluded from the fact sections and counted separately. Read-only: the
+only write in hygiene is `store.prune_orphan_entities()` (the CLI
+`--apply orphans`), which deletes entities with zero linked facts —
+single-fact entities are young, not debt.
 
 **Supplemental output pattern.** Response fields beyond the primary result (e.g.
 `add`'s `possible_duplicates`) ship as a three-piece set: (1) **omitted when empty**

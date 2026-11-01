@@ -1,6 +1,6 @@
 ---
 name: tiberius-usage
-description: "Use when local memory tools are available (search / brief / drift / probe / show / entities / related / reason / add / add_batch / feedback / update / remove / supersede / merge / list / stats / checkpoint). Recall before answering questions that may already be known; store only durable facts; rate recall quality after use; checkpoint session state at compaction."
+description: "Use when local memory tools are available (search / brief / drift / probe / show / entities / related / reason / add / add_batch / feedback / update / remove / supersede / merge / hygiene / list / stats / checkpoint). Recall before answering questions that may already be known; store only durable facts; rate recall quality after use; checkpoint session state at compaction."
 ---
 
 # Using Tiberius memory effectively
@@ -129,6 +129,13 @@ projects, and tools. Nothing leaves the machine.
   `update`+`remove`). The survivor's fact_id is what comes back; `update`
   it afterwards if you want a rewritten single statement. Superseded facts
   can't participate — they are history, not live facts.
+- **Run `hygiene` before cleaning up.** The health report shows the debt
+  with sizes: orphan entities, near-duplicate clusters, oversized facts
+  (default >200 words), low-trust facts with no feedback (default <0.45),
+  and the superseded count. It is read-only — act on it with `merge` /
+  `update` / `remove`; the only auto-fix is the CLI `hygiene --apply
+  orphans` (entities with zero linked facts). Single-fact entities are
+  young, not debt.
 
 ## Feedback — train the store
 
