@@ -481,7 +481,13 @@ tests additionally import Hermes core. Retrieval
 quality is gated by the golden eval: `python eval/run_eval.py` runs the committed
 synthetic fixture (fixture baseline recall@1 19/19, recall@3 19/19); pass a DB path to
 eval against your own live store: `python eval/run_eval.py /path/to/your.db`. CI runs
-the core suite + fixture eval on every push.
+the core suite + fixture eval on every push. Run it with a Python that has numpy —
+without it, `probe`/`related`/`reason` silently fall back to FTS5 keyword search and
+the baseline shifts to 18/19 (the runner prints a warning in that case). The fixture
+is synthetic data owned by this repo; a case that is ambiguous by design may be
+disambiguated in the fixture itself (the `alice` probe case was shortened on
+2026-11-01 so full HRR mode and FTS5 fallback mode agree on fact 6) — never edited
+to chase a ranking.
 
 Deep-dive for anyone changing the code — data model, HRR algebra (and the bundle
 rule), retrieval flows, concurrency rules, and the pitfall list:
