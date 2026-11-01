@@ -51,6 +51,7 @@ class FactRetriever:
             fts_weight, jaccard_weight, hrr_weight = 0.6, 0.4, 0.0
         self.fts_weight, self.jaccard_weight, self.hrr_weight = fts_weight, jaccard_weight, hrr_weight
         self._role_content = hrr.encode_atom(hrr.ROLE_CONTENT, self.hrr_dim) if self.hrr_weight > 0 else None
+        self._last_pool = 0  # set by _search_impl before the _search wrapper records telemetry
 
     def _phases(self, blob: bytes):
         try:
@@ -108,12 +109,13 @@ class FactRetriever:
         a memory store must never silently refuse to save). Candidate generation reuses the FTS
         pipeline at min_trust=0.0 (a low-trust near-duplicate is exactly the junk to surface);
         ranking is raw token Jaccard, not search's trust-weighted score, so trust cannot hide a
-        near-identical row. Calls _search (not search) so the check doesn't inflate retrieval_count.
+        near-identical row. Calls _search_impl (not the _search wrapper) so the check doesn't
+        inflate retrieval_count or the pool telemetry.
         candidate pool is the FTS top-5 — a near-duplicate buried past rank 5 is missed;
         widen the pool or scan all facts if misses become measurable."""
         query_tokens = self._tokenize(content)
         out = []
-        for row in self._search(content, min_trust=0.0, limit=5):
+        for row in self._search_impl(content, min_trust=0.0, limit=5):
             if row["fact_id"] == new_id:
                 continue
             score = self._jaccard_similarity(query_tokens, self._tokenize(row["content"]))
@@ -190,6 +192,31 @@ class FactRetriever:
                 since: str | None = None, categories: list[str] | None = None,
                 exclude_category: str | None = None, origin: str | None = None,
                 exclude_origin: str | None = None) -> list[dict]:
+        """The recall chokepoint for FTS search: rank via _search_impl, then count the
+        final candidate pool into the daily telemetry row (docs/pool-counters.md).
+        probe/related/reason use the entity path (no FTS pool); find_duplicates
+        (add-time duplicate detection and the hygiene scan) bypasses this so
+        maintenance passes don't pollute pool stats; match_count counts its own
+        pool on purpose and bypasses this too."""
+        results = self._search_impl(query, category, min_trust, limit, since=since,
+                                    categories=categories, exclude_category=exclude_category,
+                                    origin=origin, exclude_origin=exclude_origin)
+        self._record_pool()
+        return results
+
+    def _record_pool(self) -> None:
+        """Write the most recent _search_impl pool size (final candidates, after the
+        prefix fallback, capped at its limit*3) to the daily telemetry row.
+        Telemetry never fails recall: failures are swallowed, log-only."""
+        try:
+            self.store.record_pool(self._last_pool)
+        except Exception:
+            pass  # ponytail: no logger in the store layer; a swallowed telemetry write is the ceiling
+
+    def _search_impl(self, query: str, category: str | None = None, min_trust: float = 0.3, limit: int = 10,
+                since: str | None = None, categories: list[str] | None = None,
+                exclude_category: str | None = None, origin: str | None = None,
+                exclude_origin: str | None = None) -> list[dict]:
         with self.store._lock:  # retriever reads must not interleave with a store writer on the shared connection
             """FTS5 candidates (limit*3) → Jaccard + HRR rerank → trust weighting → optional temporal decay
             0.5^(age_days / half_life). Returns fact dicts with 'score', sorted desc."""
@@ -206,6 +233,9 @@ class FactRetriever:
                 candidates = self._fts_candidates(expanded, category, min_trust, limit * 3, prefix=True, since=since,
                                                   categories=categories, exclude_category=exclude_category,
                                                   origin=origin, exclude_origin=exclude_origin)
+            # Final candidate pool (after the prefix fallback, capped at limit*3) — the size
+            # the daily telemetry row counts (docs/pool-counters.md).
+            self._last_pool = len(candidates)
             query_tokens = self._tokenize(query)
             # Query vector is loop-invariant; encode lazily on the first candidate that carries an HRR vector
             # so stores whose hrr_vector was never backfilled don't pay for it.

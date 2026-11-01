@@ -781,3 +781,61 @@ def test_prune_orphan_entities_only_zero_fact(tmp_path):
         assert store.get_fact(solo) is not None
     finally:
         store.close()
+
+
+class _FakeClock:
+    """Fixed UTC clock for pool_stats day-boundary tests (docs/pool-counters.md)."""
+    def __init__(self, day):
+        self._day = day
+
+    def now(self, tz=None):
+        return self._day
+
+
+def test_record_pool_upsert_and_day_roll(tmp_path, monkeypatch):
+    """docs/pool-counters.md: one row per UTC day; searches/zero/sum/min/max
+    aggregate in place; a new UTC day rolls a new row (bounded by construction)."""
+    import datetime as dt
+    store = MemoryStore(str(tmp_path / "pool.db"))
+    try:
+        monkeypatch.setattr("hermes_plugin_tiberius.store.datetime",
+                            _FakeClock(dt.datetime(2026, 11, 1, 12, 0, tzinfo=dt.timezone.utc)))
+        store.record_pool(3)
+        store.record_pool(0)
+        store.record_pool(7)
+        rows = store._conn.execute(
+            "SELECT day, searches, zero_pools, sum_pool, min_pool, max_pool FROM pool_stats").fetchall()
+        assert len(rows) == 1, "same UTC day upserts one row"
+        r = rows[0]
+        assert (r["day"], r["searches"], r["zero_pools"], r["sum_pool"], r["min_pool"], r["max_pool"]) \
+            == ("2026-11-01", 3, 1, 10, 0, 7)
+        monkeypatch.setattr("hermes_plugin_tiberius.store.datetime",
+                            _FakeClock(dt.datetime(2026, 11, 2, 1, 0, tzinfo=dt.timezone.utc)))
+        store.record_pool(4)
+        days = [r["day"] for r in store._conn.execute("SELECT day FROM pool_stats ORDER BY day")]
+        assert days == ["2026-11-01", "2026-11-02"], "new UTC day rolls a new row"
+    finally:
+        store.close()
+
+
+def test_stats_pools_section_shape(tmp_path, monkeypatch):
+    """docs/pool-counters.md: stats['pools'] is stable-shaped — zeros/Nones with
+    no traffic, trailing-7-day aggregates after some."""
+    import datetime as dt
+    store = MemoryStore(str(tmp_path / "pool2.db"))
+    try:
+        assert store.stats()["pools"] == {"days": 0, "searches": 0, "zero_pool_rate": None,
+                                          "avg_pool": None, "max_pool": None}
+        now = dt.datetime.now(dt.timezone.utc)
+        for i in range(2):
+            monkeypatch.setattr("hermes_plugin_tiberius.store.datetime",
+                                _FakeClock(now - dt.timedelta(days=i)))
+            store.record_pool(5)
+            store.record_pool(0)
+        pools = store.stats()["pools"]
+        assert pools["days"] == 2 and pools["searches"] == 4
+        assert pools["zero_pool_rate"] == 0.5
+        assert pools["avg_pool"] == 2.5
+        assert pools["max_pool"] == 5
+    finally:
+        store.close()

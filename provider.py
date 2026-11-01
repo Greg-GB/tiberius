@@ -43,7 +43,7 @@ FACT_STORE_SCHEMA = {
         "plan claims with no state echo since the anchor: stale, unbuilt, or never recorded — verify before "
         "treating them as drift.\n"
         "• reason — Compositional: facts connected to MULTIPLE entities simultaneously.\n"
-        "• stats — Store orientation: totals, category mix, trust buckets, stale hygiene count. Call once at the start of a session or before a hygiene sweep (contradict, bulk remove).\n"
+        "• stats — Store orientation: totals, category mix, trust buckets, stale hygiene count, trailing-7-day pool telemetry (zero-pool rate, avg/max pool). Call once at the start of a session or before a hygiene sweep (contradict, bulk remove).\n"
         "• checkpoint — Session handoff: one active checkpoint per session (task/decisions/next as 1-8 short lines). "
         "op 'set' (default, takes 'facts' + 'session') replaces it; 'show' reads; 'clear' deletes. "
         "Set it at compaction or before ending a long task; the next session shows it instead of re-deriving state from prose.\n"

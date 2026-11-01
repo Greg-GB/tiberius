@@ -73,6 +73,15 @@ CREATE TABLE IF NOT EXISTS memory_banks (
     fact_count INTEGER DEFAULT 0,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS pool_stats (
+    day        TEXT PRIMARY KEY,
+    searches   INTEGER NOT NULL DEFAULT 0,
+    zero_pools INTEGER NOT NULL DEFAULT 0,
+    sum_pool   INTEGER NOT NULL DEFAULT 0,
+    min_pool   INTEGER NOT NULL DEFAULT 0,
+    max_pool   INTEGER NOT NULL DEFAULT 0
+);
 """
 
 _HELPFUL_DELTA, _UNHELPFUL_DELTA = 0.05, -0.10
@@ -522,10 +531,29 @@ class MemoryStore:
                    f"ORDER BY {order_map[order]} LIMIT ?")
             return [dict(r) for r in self._conn.execute(sql, params).fetchall()]
 
+    def record_pool(self, size: int) -> None:
+        """Upsert today's (UTC) pool-size row — retrieval telemetry for the #8
+        semantic-recall decision gate (docs/pool-counters.md). Bounded by
+        construction: one row per UTC day, no query text, no per-query history.
+        Telemetry only — callers wrap this so a failure never fails the search."""
+        with self._lock:
+            day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            self._write(
+                "INSERT INTO pool_stats (day, searches, zero_pools, sum_pool, min_pool, max_pool) "
+                "VALUES (?, 1, ?, ?, ?, ?) "
+                "ON CONFLICT(day) DO UPDATE SET searches = searches + 1, "
+                "zero_pools = zero_pools + excluded.zero_pools, "
+                "sum_pool = sum_pool + excluded.sum_pool, "
+                "min_pool = MIN(min_pool, excluded.min_pool), "
+                "max_pool = MAX(max_pool, excluded.max_pool)",
+                (day, 1 if size == 0 else 0, size, size, size))
+
     def stats(self) -> dict:
         """Orientation aggregates: total facts, entity count, category mix,
         trust buckets (0.3/0.5/0.7 cuts), and the stale hygiene count
-        (trust < 0.5 and updated_at older than 30 days). Read-only, no params."""
+        (trust < 0.5 and updated_at older than 30 days). Read-only, no params.
+        pools: trailing-7-day retrieval telemetry — zero-pool rate, weighted
+        avg pool, max pool (docs/pool-counters.md)."""
         with self._lock:
             total = self._one("SELECT COUNT(*) AS n FROM facts")["n"]
             entities = self._one("SELECT COUNT(*) AS n FROM entities")["n"]
@@ -542,9 +570,22 @@ class MemoryStore:
                     trust_buckets[label] = n
             stale = self._one(
                 "SELECT COUNT(*) AS n FROM facts WHERE trust_score < 0.5 AND updated_at <= datetime('now', '-30 days')")["n"]
+            pools_row = self._conn.execute(
+                "SELECT COUNT(*) AS days, COALESCE(SUM(searches), 0) AS searches, "
+                "COALESCE(SUM(zero_pools), 0) AS zero_pools, COALESCE(SUM(sum_pool), 0) AS sum_pool, "
+                "COALESCE(MAX(max_pool), 0) AS max_pool "
+                "FROM pool_stats WHERE day >= date('now', '-6 days')").fetchone()
+            if pools_row["searches"]:
+                pools = {"days": pools_row["days"], "searches": pools_row["searches"],
+                         "zero_pool_rate": round(pools_row["zero_pools"] / pools_row["searches"], 4),
+                         "avg_pool": round(pools_row["sum_pool"] / pools_row["searches"], 2),
+                         "max_pool": pools_row["max_pool"]}
+            else:
+                pools = {"days": 0, "searches": 0, "zero_pool_rate": None,
+                         "avg_pool": None, "max_pool": None}
             return {"total": total, "entities": entities, "by_category": by_category,
                     "by_origin": by_origin,
-                    "trust_buckets": trust_buckets, "stale_count": stale}
+                    "trust_buckets": trust_buckets, "stale_count": stale, "pools": pools}
 
     def get_fact(self, fact_id: int) -> dict | None:
         """Read one fact by id: the full row plus its linked entities (name + aliases).
