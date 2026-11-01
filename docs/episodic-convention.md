@@ -1,6 +1,6 @@
 # Episodic memory: decision-log convention
 
-Status: unreleased — candidate. One standalone doc per branch (no roadmap index).
+Status: **shipped** — v0.6.12 (2026-11-01). One standalone doc per branch (no roadmap index).
 
 ## Problem
 
