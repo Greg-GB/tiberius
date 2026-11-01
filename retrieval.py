@@ -123,6 +123,69 @@ class FactRetriever:
                 break
         return out
 
+    def hygiene(self, limit: int = 20, max_words: int = 200, min_trust: float = 0.45) -> dict:
+        """Store health report (docs/hygiene.md) — read-only: what is the mess, and how
+        big is it? Four debt sections, each capped at `limit` items with its total
+        count alongside: orphan entities (fact_count <= 1), near-duplicate clusters
+        (the same FTS + Jaccard detector `add` runs, threshold 0.5), oversized facts
+        (live rows over `max_words` words), low-trust facts (live rows below
+        `min_trust` with no helpful feedback). Superseded rows are history: excluded
+        from the fact sections, counted separately. Writes nothing — the only write
+        in hygiene is the separate `prune_orphan_entities` apply."""
+        s = self.store
+        with s._lock:
+            orphans = s._conn.execute(
+                "SELECT e.entity_id, e.name, COUNT(fe.fact_id) AS n FROM entities e "
+                "LEFT JOIN fact_entities fe ON fe.entity_id = e.entity_id "
+                "GROUP BY e.entity_id HAVING n <= 1 ORDER BY n ASC, e.name ASC").fetchall()
+            live = s._conn.execute(
+                "SELECT fact_id, content, trust_score, helpful_count FROM facts "
+                "WHERE superseded_by IS NULL ORDER BY fact_id").fetchall()
+            superseded = s._conn.execute(
+                "SELECT COUNT(*) FROM facts WHERE superseded_by IS NOT NULL").fetchone()[0]
+        oversized = [{"fact_id": r["fact_id"], "words": len(r["content"].split())}
+                     for r in live if len(r["content"].split()) > max_words]
+        low_trust = [{"fact_id": r["fact_id"], "trust_score": round(r["trust_score"], 3)}
+                     for r in live if r["trust_score"] < min_trust and r["helpful_count"] == 0]
+        # Near-duplicate clusters: run the add-time detector once per live fact and fold
+        # the undirected pairs it reports into connected clusters. Superseded rows are
+        # skipped (history can't be merged), and each pair is counted once (a < b).
+        # ponytail: O(N) detector runs (one FTS pass per live fact) — fine at store
+        # scale; swap for a single pairwise pass if hygiene is ever run over 10k facts.
+        pairs: set[tuple[int, int]] = set()
+        for r in live:
+            for dup in self.find_duplicates(r["content"], r["fact_id"]):
+                a, b = sorted((r["fact_id"], dup["fact_id"]))
+                pairs.add((a, b))
+        parent = {}
+        def find(x: int) -> int:
+            while parent.setdefault(x, x) != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+        for a, b in pairs:
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[ra] = rb
+        clusters: dict[int, list[int]] = {}
+        for a, b in pairs:
+            clusters.setdefault(find(a), set()).update((a, b))
+        by_id = {r["fact_id"]: r["content"] for r in live}
+        cluster_rows = [
+            [{"fact_id": fid, "content": by_id[fid][:80]} for fid in sorted(members)]
+            for members in sorted(clusters.values(), key=lambda m: min(m))]
+        limit = max(1, limit)
+        return {
+            "orphan_entities": {"count": len(orphans),
+                                "items": [{"entity_id": r[0], "name": r[1], "fact_count": r[2]}
+                                          for r in orphans[:limit]]},
+            "near_duplicates": {"count": len(cluster_rows),
+                                "clusters": cluster_rows[:limit]},
+            "oversized_facts": {"count": len(oversized), "items": oversized[:limit]},
+            "low_trust": {"count": len(low_trust), "items": low_trust[:limit]},
+            "superseded_count": superseded,
+        }
+
     def _search(self, query: str, category: str | None = None, min_trust: float = 0.3, limit: int = 10,
                 since: str | None = None, categories: list[str] | None = None,
                 exclude_category: str | None = None, origin: str | None = None,

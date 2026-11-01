@@ -594,3 +594,93 @@ def test_related_hop_filter_keeps_passing_facts(tmp_path):
             "origin-filtered related keeps only the passing hop fact"
     finally:
         store.close()
+
+
+# ---------------------------------------------------------------------------
+# hygiene — store health report (docs/hygiene.md)
+# ---------------------------------------------------------------------------
+
+def _hygiene_fixture(tmp_path):
+    """A store carrying all four debt classes plus one superseded row."""
+    store = MemoryStore(str(tmp_path / "hyg.db"))
+    dup_a = store.add_fact("The AcmeWidget dock holds two gantries.")
+    dup_b = store.add_fact("The AcmeWidget dock holds three gantries.")
+    big = store.add_fact("The ZetaCorp yard. " * 70)  # 210 words > 200 default
+    low = store.add_fact("A shaky claim about the RelayX line.")
+    store._write("UPDATE facts SET trust_score = 0.30 WHERE fact_id = ?", (low,))
+    orphan_f = store.add_fact("OnlyQuarry is a quarry.")
+    store.remove_fact(orphan_f)  # leaves a zero-fact entity
+    store.add_fact("The SoloMine runs one shift.")
+    old = store.add_fact("Old note about the SoloMine.")
+    store.supersede(old, "The SoloMine note has been corrected.")
+    return store, {"dup_a": dup_a, "dup_b": dup_b, "big": big, "low": low}
+
+
+def test_hygiene_report_finds_all_debt_classes(tmp_path):
+    pytest.importorskip("numpy")
+    store, f = _hygiene_fixture(tmp_path)
+    try:
+        rep = FactRetriever(store).hygiene()
+        names = {i["name"]: i["fact_count"] for i in rep["orphan_entities"]["items"]}
+        assert names["OnlyQuarry"] == 0, "true orphan (zero linked facts) reported"
+        assert rep["orphan_entities"]["count"] == len(names)
+        clusters = rep["near_duplicates"]["clusters"]
+        assert rep["near_duplicates"]["count"] == 1
+        assert sorted(x["fact_id"] for x in clusters[0]) == sorted((f["dup_a"], f["dup_b"]))
+        assert rep["oversized_facts"]["count"] == 1
+        assert rep["oversized_facts"]["items"][0]["fact_id"] == f["big"]
+        assert rep["oversized_facts"]["items"][0]["words"] == 210
+        assert rep["low_trust"] == {"count": 1, "items": [{"fact_id": f["low"], "trust_score": 0.3}]}
+        assert rep["superseded_count"] == 1
+        # superseded rows are history: never inside a fact section
+        all_fact_ids = [i["fact_id"] for i in rep["oversized_facts"]["items"]] + \
+                       [i["fact_id"] for i in rep["low_trust"]["items"]] + \
+                       [x["fact_id"] for c in clusters for x in c]
+        superseded_ids = {r["fact_id"] for r in store.list_facts(min_trust=0.0, limit=100, include_superseded=True)
+                          if r["superseded_by"] is not None}
+        assert not (set(all_fact_ids) & superseded_ids)
+    finally:
+        store.close()
+
+
+def test_hygiene_caps_respected_and_read_only(tmp_path):
+    pytest.importorskip("numpy")
+    store, _f = _hygiene_fixture(tmp_path)
+    try:
+        ret = FactRetriever(store)
+        full = ret.hygiene()
+        capped = ret.hygiene(limit=1)
+        for section in ("orphan_entities", "near_duplicates", "oversized_facts", "low_trust"):
+            items = capped[section]["items" if section != "near_duplicates" else "clusters"]
+            assert len(items) <= 1
+            assert capped[section]["count"] == full[section]["count"], "cap limits items, not the count"
+        # report writes nothing: row counts and every link unchanged
+        before = (store._conn.execute("SELECT COUNT(*) FROM facts").fetchone()[0],
+                  store._conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0],
+                  store._conn.execute("SELECT COUNT(*) FROM fact_entities").fetchone()[0])
+        ret.hygiene()
+        after = (store._conn.execute("SELECT COUNT(*) FROM facts").fetchone()[0],
+                 store._conn.execute("SELECT COUNT(*) FROM entities").fetchone()[0],
+                 store._conn.execute("SELECT COUNT(*) FROM fact_entities").fetchone()[0])
+        assert before == after
+        # stats unaffected by the report run
+        stats = store.stats()
+        assert stats["total"] == before[0]
+    finally:
+        store.close()
+
+
+def test_hygiene_threshold_args(tmp_path):
+    pytest.importorskip("numpy")
+    store = MemoryStore(str(tmp_path / "th.db"))
+    try:
+        store.add_fact("One fact about the AcmeWidget line only.")
+        ret = FactRetriever(store)
+        rep = ret.hygiene(max_words=5, min_trust=0.6)
+        assert rep["oversized_facts"]["count"] == 1  # 8 words > 5
+        assert rep["low_trust"]["count"] == 1        # default trust 0.5 < 0.6
+        rep = ret.hygiene(max_words=10, min_trust=0.1)
+        assert rep["oversized_facts"]["count"] == 0
+        assert rep["low_trust"]["count"] == 0
+    finally:
+        store.close()

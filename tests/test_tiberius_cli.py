@@ -473,3 +473,30 @@ def test_cli_merge_roundtrip(tmp_path, capsys):
     assert "distinct" in out["error"]
     out = _run(capsys, "--db", db, "merge", "99999", str(survivor))
     assert "not found" in out["error"]
+
+
+def test_cli_hygiene_report_and_apply(tmp_path, capsys):
+    """docs/hygiene.md via the CLI: the report carries all five sections with
+    capped items + total counts, and --apply orphans prunes zero-fact entities only."""
+    db = str(tmp_path / "hyg.db")
+    a = _run(capsys, "--db", db, "add", "The AcmeWidget dock holds two gantries.")["fact_id"]
+    b = _run(capsys, "--db", db, "add", "The AcmeWidget dock holds three gantries.")["fact_id"]
+    gone = _run(capsys, "--db", db, "add", "OnlyQuarry is a quarry.")["fact_id"]
+    _run(capsys, "--db", db, "remove", str(gone))
+    rep = _run(capsys, "--db", db, "hygiene")
+    assert set(rep) == {"orphan_entities", "near_duplicates", "oversized_facts", "low_trust", "superseded_count"}
+    names = {i["name"]: i["fact_count"] for i in rep["orphan_entities"]["items"]}
+    assert names.get("OnlyQuarry") == 0
+    assert rep["near_duplicates"]["count"] == 1
+    assert sorted(x["fact_id"] for x in rep["near_duplicates"]["clusters"][0]) == sorted((a, b))
+    # caps: limit=1 keeps the count, trims the items
+    capped = _run(capsys, "--db", db, "hygiene", "--limit", "1")
+    assert len(capped["orphan_entities"]["items"]) <= 1
+    assert capped["orphan_entities"]["count"] == rep["orphan_entities"]["count"]
+    # apply: prunes the orphan, keeps single-fact entities, idempotent after
+    out = _run(capsys, "--db", db, "hygiene", "--apply", "orphans")
+    assert out["pruned_orphan_entities"] == 1
+    assert _run(capsys, "--db", db, "hygiene", "--apply", "orphans")["pruned_orphan_entities"] == 0
+    assert "OnlyQuarry" not in json.dumps(_run(capsys, "--db", db, "entities"))
+    # the report itself wrote nothing
+    assert _run(capsys, "--db", db, "list")["count"] == 2
