@@ -155,8 +155,8 @@ Files:
   code — the guard test pins the shape (`docs/episodic-convention.md`).
 - **Quality gates**: the core test suite (runs anywhere — `python -m pytest -q`),
   the plugin unit tests, Hermes-provider tests (need a Hermes environment), and
-  a 19-query golden recall eval (`eval/`) as the regression check for retrieval
-  changes (current fixture baseline: recall@1 18/19, recall@3 19/19).
+  a 19-query golden recall eval (`eval/`) that any retrieval change must not
+  regress (fixture baseline recall@1 19/19, recall@3 19/19).
 
 ## Prerequisites
 
@@ -474,8 +474,7 @@ skills directory (or referencing it from your agent instructions).
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) — the one rule that matters: retrieval
-changes must not regress the golden eval (current fixture baseline:
-recall@1 18/19, recall@3 19/19).
+changes must not regress the golden eval (fixture baseline recall@1 19/19, recall@3 19/19).
 AI coding agents: [AGENTS.md](AGENTS.md). Security policy and what counts as a
 vulnerability in a local-memory project: [SECURITY.md](SECURITY.md).
 
@@ -484,7 +483,7 @@ vulnerability in a local-memory project: [SECURITY.md](SECURITY.md).
 The core test suite needs nothing beyond Python 3.11+ and pytest; provider
 tests additionally import Hermes core. Retrieval
 quality is gated by the golden eval: `python eval/run_eval.py` runs the committed
-synthetic fixture (current baseline: recall@1 18/19, recall@3 19/19); pass a DB path to
+synthetic fixture (fixture baseline recall@1 19/19, recall@3 19/19); pass a DB path to
 eval against your own live store: `python eval/run_eval.py /path/to/your.db`. CI runs
 the core suite + fixture eval on every push. Run it with a Python that has numpy —
 without it, `probe`/`related`/`reason` silently fall back to FTS5 keyword search and

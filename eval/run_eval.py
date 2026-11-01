@@ -53,6 +53,12 @@ def open_store(tmp):
     return s
 
 def main():
+    if not sys.modules["tiberius_eval.holographic"]._HAS_NUMPY:
+        # Silent-degradation trap: without numpy, probe/related/reason fall back to FTS5
+        # keyword search and the golden baseline changes (19/19 full mode -> 18/19 here,
+        # the 'alice' probe case is a tie in full mode that FTS bm25 breaks differently).
+        print("WARNING: numpy not importable — probe/related/reason ran in FTS5 fallback mode.\n"
+              "         The 19/19 baseline applies to full (numpy) mode only; expect 18/19 here.")
     tmp = os.path.join(tempfile.gettempdir(), f"tiberius_eval_{os.getpid()}.db")
     s = open_store(tmp)
     r = FactRetriever(s)
