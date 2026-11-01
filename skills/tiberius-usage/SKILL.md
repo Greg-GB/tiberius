@@ -115,6 +115,13 @@ projects, and tools. Nothing leaves the machine.
   of re-deriving state from prose. One active checkpoint per session: `set`
   replaces, `clear` deletes. Checkpoint facts are session state — `brief`
   never injects them into a pack.
+- **Episodic decisions — store the decision log.** When a decision is made
+  (chose X over Y, with a reason), `add` it with category `episodic` and the
+  content shape `YYYY-MM-DD: <decision> — <alternatives> — <reason>` — one
+  line, tag `episodic` plus the entities involved. The date prefix is the
+  first token, so date and topic search work. The timeline is
+  `list --category episodic --since <date>`; `search` and `probe` reach it
+  through the usual paths (docs/episodic-convention.md).
 - **Supersede stale facts instead of remove+add.** When a fact is still true
   in shape but stale in value (a version, a port, a 'current' pointer),
   `supersede` the fact_id with the replacement statement: the old row is
