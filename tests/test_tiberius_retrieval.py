@@ -716,3 +716,23 @@ def test_pool_counter_counts_final_pool(tmp_path):
         assert len(r.search("sqlite")) >= 1
     finally:
         store.close()
+
+
+def test_episodic_convention_shape_is_reachable(tmp_path):
+    """docs/episodic-convention.md guard: a decision fact written in the
+    convention's shape (category `episodic`, `YYYY-MM-DD: <decision> —
+    <alternatives> — <reason>`) stays reachable on both recall surfaces —
+    `list_facts(category='episodic', since=...)` and `search('<topic>')`.
+    Pins that no future change silently breaks the shape."""
+    store = MemoryStore(str(tmp_path / "episodic.db"))
+    r = FactRetriever(store)
+    try:
+        store.add_fact("2026-11-01: Chose SQLite WAL over Postgres for the store — "
+                       "single writer, zero extra process — because the store is single-user.",
+                       category="episodic", tags="episodic")
+        rows = store.list_facts(category="episodic", since="1d", order="recent")
+        assert len(rows) == 1 and rows[0]["content"].startswith("2026-11-01:")
+        hits = r.search("postgres store decision")
+        assert any(row["content"].startswith("2026-11-01:") for row in hits)
+    finally:
+        store.close()
