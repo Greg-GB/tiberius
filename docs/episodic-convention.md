@@ -42,9 +42,10 @@ Optional follow-up (only if used): `stats` reports the episodic count.
 - No schema: if the convention outgrows free-form categories (unlikely),
   revisit then.
 
-## Tests planned
+## Tests (shipped)
 
 - None for the convention itself (doc-only).
-- One guard test: a fixture fact with category `episodic` and the content
-  shape is found by `list --category episodic --since <date>` and by
-  `search <topic>` — pins that no future change silently breaks the shape.
+- `test_episodic_convention_shape_is_reachable` — a fixture fact with category
+  `episodic` and the content shape is found by `list_facts(category='episodic',
+  since='1d')` and by `search('<topic>')`; pins that no future change silently
+  breaks the shape.

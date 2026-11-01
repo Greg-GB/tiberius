@@ -142,6 +142,13 @@ Files:
   (`zero_pool_rate`, `avg_pool`, `max_pool`) — the production input for the
   gated semantic-recall decision. No query text stored; add-time duplicate
   detection and the hygiene scan don't count (`docs/pool-counters.md`).
+- **Episodic decisions**: a convention, not an engine. Decisions and dated
+  events are stored with category `episodic` and the content shape
+  `YYYY-MM-DD: <decision> — <alternatives> — <reason>` (one line; the date
+  prefix is the first token, which is what makes date or topic search work).
+  Recall uses the existing surfaces: `list --category episodic --since
+  <date>` is the decision timeline, `search` and `probe` work as usual. No
+  code — the guard test pins the shape (`docs/episodic-convention.md`).
 - **Quality gates**: the core test suite (runs anywhere — `python -m pytest -q`),
   the plugin unit tests, Hermes-provider tests (need a Hermes environment), and
   a 19-query golden recall eval (`eval/`) that any retrieval change must not
