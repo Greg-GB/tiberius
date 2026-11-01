@@ -392,6 +392,9 @@ def test_cli_supersede_roundtrip_and_list_flag(tmp_path, capsys):
     assert all(r["fact_id"] != fid for r in listed)
     included = _run(capsys, "--db", db, "list", "--include-superseded")["results"]
     assert {r["fact_id"] for r in included} == {fid, out["new_fact_id"]}
+    by_id = {r["fact_id"]: r for r in included}
+    assert by_id[fid]["superseded_by"] == out["new_fact_id"]
+    assert by_id[out["new_fact_id"]]["superseded_by"] is None
 
 
 def test_cli_supersede_errors(tmp_path, capsys):

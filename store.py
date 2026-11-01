@@ -433,7 +433,8 @@ class MemoryStore:
             params = [min_trust] + ([category] if category is not None else []) \
                      + ([_parse_since(since)] if since is not None else []) + [limit]
             sql = (f"SELECT fact_id, content, category, tags, trust_score, retrieval_count, helpful_count, "
-                   f"created_at, updated_at FROM facts WHERE trust_score >= ? {superseded_clause}{category_clause}{since_clause}"
+                   f"created_at, updated_at, superseded_by, superseded_at "
+                   f"FROM facts WHERE trust_score >= ? {superseded_clause}{category_clause}{since_clause}"
                    f"ORDER BY {order_map[order]} LIMIT ?")
             return [dict(r) for r in self._conn.execute(sql, params).fetchall()]
 

@@ -290,7 +290,11 @@ the untested assumptions):
   likewise — unit-verified the same way, and runtime-verified against live
   OpenCode 2.0.28 (2026-10-30); the `memory_search` / `memory_brief`
   `since` windows (`docs/since.md`) likewise — unit-verified the same way,
-  and runtime-verified against live OpenCode 2.0.28 (2026-10-30).
+  and runtime-verified against live OpenCode 2.0.28 (2026-10-30);
+  `memory_supersede` (fact replacement with hidden history,
+  `docs/supersede.md`) likewise — unit-verified as the CLI subcommand, the
+  plugin tool, and the provider's `fact_store(action='supersede')`
+  (2026-11-01).
 - `context` hook: searches the last user message text and pushes top facts
   into the system prompt. Default: per-turn — every **new** user message is
   searched (per-session `lastSearched` — later model calls in the same turn
