@@ -1,6 +1,6 @@
 # `merge`: atomic near-duplicate resolution
 
-Status: unreleased — candidate. One standalone doc per branch (no roadmap index).
+Status: **shipped** — v0.6.9 (2026-11-01). One standalone doc per branch (no roadmap index).
 
 ## Problem
 
