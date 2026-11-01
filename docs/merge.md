@@ -51,10 +51,35 @@ Surfaces: `provider.py` (action), `cli.py` (`merge <from> <into>`),
 - No history: this is consolidation, not invalidation. If the caller wants
   the old text kept, `supersede` is the right action, not `merge`.
 
-## Tests planned
+## Tests
 
-- content/trust/entity/tag union on a fixture with disjoint entities.
-- from row gone, survivor fact_id unchanged.
-- errors: unknown id, same id twice, superseded participant.
-- atomicity: simulate failure mid-transaction → store unchanged.
-- CLI + OpenCode argv pins.
+- `test_merge_unions_content_trust_tags_entities` (store): content is the
+  survivor's plus the from's (newline-joined), trust the max, tags the
+  deduped union, entities the union, the from row and its links gone, the
+  survivor id unchanged, the survivor's HRR vector recomputed.
+- `test_merge_is_atomic_on_mid_transaction_failure` (store): a failure at
+  the `DELETE FROM fact_entities` step (proxy on the connection) rolls the
+  whole transaction back — both rows, trust, tags, and every entity link are
+  exactly as before.
+- `test_merge_errors` (store + provider): identical ids (`ValueError`),
+  unknown id either side (`KeyError`), a superseded participant on either
+  side (`ValueError`) — the store is left untouched.
+- `test_cli_merge_roundtrip` (CLI): merged row returned, from row gone from
+  `list`, errors are the JSON error envelope.
+- `test_schema_merge_action` / `test_merge_roundtrip` / `test_merge_errors`
+  (provider, `tests/test_tiberius_hermes_merge.py`): the action to the schema
+  enum + `from_fact_id`/`into_fact_id` params, a roundtrip through
+  `handle_tool_call`, and the error paths.
+- OpenCode: `memory_merge` argv pin (`merge <from> <into>`) + tool-count
+  pins (18 base, 20 with skill dirs).
+
+## Implementation notes
+
+- `MemoryStore.merge_fact` does the preconditions as plain reads, then one
+  explicit `BEGIN IMMEDIATE` ... `commit` block (the shared-connection
+  methods auto-commit; merge must not, or the transaction guarantee is
+  gone). Any statement failure rolls back and re-raises; the whole method
+  runs under the shared re-entrant lock, so no other writer can interleave
+  a commit inside the transaction.
+- A merged content that already is another fact raises `ValueError` (same
+  house pattern as `supersede`).
