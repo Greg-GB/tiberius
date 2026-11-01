@@ -1,6 +1,6 @@
 # `hygiene`: store health report (dry-run first)
 
-Status: unreleased — candidate. One standalone doc per branch (no roadmap index).
+Status: **shipped** — v0.6.10 (2026-11-01). One standalone doc per branch (no roadmap index).
 
 ## Problem
 
