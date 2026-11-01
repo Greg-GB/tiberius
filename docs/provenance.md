@@ -1,6 +1,6 @@
 # Provenance: who wrote a fact
 
-Status: unreleased — candidate. One standalone doc per branch (no roadmap index).
+Status: **shipped** — v0.6.8 (2026-11-01). One standalone doc per branch (no roadmap index).
 
 ## Problem
 
