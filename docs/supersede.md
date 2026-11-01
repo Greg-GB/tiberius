@@ -20,7 +20,11 @@ One new action:
 
 | args | effect |
 |---|---|
-| `supersede(fact_id, content, [category], [entities], [tags])` | insert a new fact (normal `add` semantics, one transaction) and mark the old fact superseded by the new one's `fact_id` |
+| `supersede(fact_id, content, [category], [tags])` | insert a new fact (normal `add` semantics) and mark the old fact superseded by the new one's `fact_id`. Two committed steps (add, then mark): a crash between them leaves a resolvable duplicate, never an orphaned replacement |
+
+`content` must differ from every existing fact's content exactly: the store
+refuses a supersede whose replacement would hit the `UNIQUE(content)` path
+(the insert would hand back a foreign fact_id as the "replacement").
 
 Schema: two additive columns on `facts` (SQLite `ALTER TABLE … ADD COLUMN`,
 backward-compatible migration in `_migrate`):
@@ -32,8 +36,13 @@ Exclusion, applied in the same places as the `min_trust` filter:
 
 - Token path: `_fts_candidates` gains `AND f.superseded_by IS NULL` (exact and
   prefix passes inherit it, house pattern from the category filters).
-- Entity path: `probe`/`related`/`reason` graph queries gain the same clause.
+- Entity path: `probe`/`related`/`reason` rows are fetched through the shared
+  `_rows_by_ids` fetch, which gains `AND f.superseded_by IS NULL` (own and
+  1-hop neighbours both covered).
 - `brief` inherits both via `search`/`match_count`.
+- `drift`'s plan-fact query gains the clause too (a superseded plan fact is
+  the old plan, not the current one); its state side inherits via
+  `search`/`probe`.
 - `show` and direct reads still return superseded facts, with
   `superseded_by` / `superseded_at` in the row — history stays readable.
 -
@@ -54,6 +63,9 @@ Chains: superseding a superseded fact is legal and produces a chain;
   bites).
 - No trust transfer: the new fact starts at the default trust; feedback
   re-earns it.
+- No explicit `entities` parameter: the replacement is a normal `add`, which
+  extracts entities from its content — put the entities you care about in the
+  new statement.
 
 ## Tests planned
 
