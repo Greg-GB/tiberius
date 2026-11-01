@@ -1,6 +1,6 @@
 # `supersede`: fact invalidation with history
 
-Status: unreleased — candidate. One standalone doc per branch (no roadmap index).
+Status: **shipped** — v0.6.7 (2026-11-01)
 
 ## Problem
 
