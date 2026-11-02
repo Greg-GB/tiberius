@@ -1,6 +1,6 @@
 # Fallback-search counter (degraded-recall telemetry)
 
-Status: unreleased — candidate. One standalone doc per branch (no roadmap index).
+Status: **shipped** — v0.6.14 (2026-11-02). One standalone doc per branch (no roadmap index).
 
 ## Problem
 
