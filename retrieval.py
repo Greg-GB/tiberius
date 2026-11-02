@@ -52,6 +52,7 @@ class FactRetriever:
         self.fts_weight, self.jaccard_weight, self.hrr_weight = fts_weight, jaccard_weight, hrr_weight
         self._role_content = hrr.encode_atom(hrr.ROLE_CONTENT, self.hrr_dim) if self.hrr_weight > 0 else None
         self._last_pool = 0  # set by _search_impl before the _search wrapper records telemetry
+        self._last_fallback = False  # set by the recall entry points (fallback-counter.md)
 
     def _phases(self, blob: bytes):
         try:
@@ -69,7 +70,7 @@ class FactRetriever:
     def search(self, query: str, category: str | None = None, min_trust: float = 0.3, limit: int = 10,
                since: str | None = None, categories: list[str] | None = None,
                exclude_category: str | None = None, origin: str | None = None,
-               exclude_origin: str | None = None) -> list[dict]:
+               exclude_origin: str | None = None, _fallback: bool = False) -> list[dict]:
         """Public keyword search: _search plus retrieval recording. probe/related/reason fallbacks
         call _search directly so each recall counts its returned facts exactly once.
         since (the store._parse_since forms) window the candidate pool on created_at, so limit
@@ -77,7 +78,11 @@ class FactRetriever:
         categories (IN list) / exclude_category filter the candidate pool; categories takes
         precedence over the singular category (docs/search-categories.md).
         origin includes only one writer's rows; exclude_origin drops one writer but keeps
-        legacy NULL-origin rows (docs/provenance.md)."""
+        legacy NULL-origin rows (docs/provenance.md).
+        _fallback marks a degraded keyword-only call (the probe/related/reason FTS fallback);
+        search also counts as fallback when the HRR term is disabled (no numpy). Both feed
+        the daily fallback_searches counter (docs/fallback-counter.md)."""
+        self._last_fallback = _fallback or (self.hrr_weight == 0)
         return self._recorded(self._search(query, category, min_trust, limit, since=since,
                                            categories=categories, exclude_category=exclude_category,
                                            origin=origin, exclude_origin=exclude_origin))
@@ -209,7 +214,7 @@ class FactRetriever:
         prefix fallback, capped at its limit*3) to the daily telemetry row.
         Telemetry never fails recall: failures are swallowed, log-only."""
         try:
-            self.store.record_pool(self._last_pool)
+            self.store.record_pool(self._last_pool, self._last_fallback)
         except Exception:
             pass  # ponytail: no logger in the store layer; a swallowed telemetry write is the ceiling
 
@@ -320,17 +325,18 @@ class FactRetriever:
         return noise. Falls back to FTS5 when nothing is structurally linked or without numpy."""
         with self.store._lock:  # retriever reads must not interleave with a store writer on the shared connection
             names = [self._canonical(e) for e in (entity if isinstance(entity, list) else [entity])]  # alias -> canonical, so either AKA name works
+            self._last_fallback = False  # entry-point reset; a fallback branch below re-sets it via search(_fallback=True)
             if not hrr._HAS_NUMPY:
                 return self.search(" ".join(names), category=category, limit=limit,
-                                   origin=origin, exclude_origin=exclude_origin)
+                                   origin=origin, exclude_origin=exclude_origin, _fallback=True)
             ids = set.union(*[self._entity_fact_ids(n, category) for n in names])  # one name: its own set
             if not ids:
                 return self.search(" ".join(names), category=category, limit=limit,
-                                   origin=origin, exclude_origin=exclude_origin)
+                                   origin=origin, exclude_origin=exclude_origin, _fallback=True)
             rows = self._rows_by_ids(ids, category, origin, exclude_origin)
             if not rows:
                 return self.search(" ".join(names), category=category, limit=limit,
-                                   origin=origin, exclude_origin=exclude_origin)
+                                   origin=origin, exclude_origin=exclude_origin, _fallback=True)
             ctx = self._ctx_bundle(rows)
             return self._recorded(self._rank_by_ctx(rows, ctx, limit))
 
@@ -341,13 +347,14 @@ class FactRetriever:
         when nothing is linked or without numpy."""
         with self.store._lock:
             entity = self._canonical(entity)  # alias -> canonical
+            self._last_fallback = False  # entry-point reset; a fallback branch below re-sets it via search(_fallback=True)
             if not hrr._HAS_NUMPY:
                 return self.search(entity, category=category, limit=limit,
-                                   origin=origin, exclude_origin=exclude_origin)
+                                   origin=origin, exclude_origin=exclude_origin, _fallback=True)
             own_ids = self._entity_fact_ids(entity, category)
             if not own_ids:
                 return self.search(entity, category=category, limit=limit,
-                                   origin=origin, exclude_origin=exclude_origin)
+                                   origin=origin, exclude_origin=exclude_origin, _fallback=True)
             own = self._rows_by_ids(own_ids, category, origin, exclude_origin)
             # 1-hop: facts linked to any of the entity's entities, excluding the entity's own facts
             qmarks = ",".join("?" * len(own_ids))
@@ -378,13 +385,14 @@ class FactRetriever:
         """Multi-entity compositional query (entity-graph JOIN): facts linked to ALL entities, ranked by
         content centrality to the intersection. Falls back to FTS5 on empty intersection or without numpy."""
         with self.store._lock:
+            self._last_fallback = False  # entry-point reset; a fallback branch below re-sets it via search(_fallback=True)
             if not hrr._HAS_NUMPY or not entities:
                 return self.search(" ".join(entities), category=category, limit=limit,
-                                   origin=origin, exclude_origin=exclude_origin)
+                                   origin=origin, exclude_origin=exclude_origin, _fallback=True)
             ids = set.intersection(*(self._entity_fact_ids(self._canonical(e), category) for e in entities))
             if not ids:
                 return self.search(" ".join(entities), category=category, limit=limit,
-                                   origin=origin, exclude_origin=exclude_origin)
+                                   origin=origin, exclude_origin=exclude_origin, _fallback=True)
             rows = self._rows_by_ids(ids, category, origin, exclude_origin)
             ctx = self._ctx_bundle(rows)
             return self._recorded(self._rank_by_vector(rows, lambda _f, v: hrr.similarity(v, ctx) if ctx is not None else 0.0, limit))

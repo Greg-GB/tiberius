@@ -710,10 +710,42 @@ def test_pool_counter_counts_final_pool(tmp_path):
         r.hygiene()
         assert store._conn.execute("SELECT searches FROM pool_stats").fetchone()["searches"] == 3
         # telemetry failure never fails the search
-        def _boom(size):
+        def _boom(size, fallback=False):
             raise RuntimeError("disk full")
         store.record_pool = _boom
         assert len(r.search("sqlite")) >= 1
+    finally:
+        store.close()
+
+
+def test_fallback_counter_marks_degraded_calls(tmp_path, monkeypatch):
+    """docs/fallback-counter.md: full-mode search/probe are not fallbacks; the
+    probe/related/reason FTS fallbacks and a no-numpy search (HRR term disabled)
+    each increment fallback_searches exactly once."""
+    from hermes_plugin_tiberius import holographic as hrr
+
+    def _fb():
+        return store._conn.execute("SELECT COALESCE(SUM(fallback_searches), 0) AS n FROM pool_stats").fetchone()["n"]
+
+    store = MemoryStore(str(tmp_path / "fb.db"))
+    r = FactRetriever(store)
+    try:
+        store.add_fact("Alice manages the SQLite deployment at Acme.")
+        store.add_fact("Bob reviews the deployment runbook.")
+        r.search("deployment")
+        assert _fb() == 0, "full-mode search is not a fallback"
+        r.probe("zzz-noentity")   # unlinked name -> keyword fallback
+        assert _fb() == 1
+        r.related("zzz-noentity")
+        r.reason(["zzz-noentity"])
+        assert _fb() == 3, "each compositional fallback counts once"
+        # no numpy: fresh retriever redistributes weights (hrr_weight 0) -> search
+        # is fallback; probe takes the no-numpy branch
+        monkeypatch.setattr(hrr, "_HAS_NUMPY", False)
+        r2 = FactRetriever(store)
+        r2.search("deployment")
+        r2.probe("Alice")
+        assert _fb() == 5
     finally:
         store.close()
 
