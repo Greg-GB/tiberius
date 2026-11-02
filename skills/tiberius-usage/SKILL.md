@@ -60,8 +60,11 @@ projects, and tools. Nothing leaves the machine.
   and nothing else lists the names. A listing is not a recall.
 - **Stats** — orientation before hygiene: total facts, category mix, trust
   buckets, and the stale count (low trust, old). It also reports trailing-7-day
-  pool telemetry (`zero_pool_rate`, `avg_pool`, `max_pool`) — whether real
-  queries hit zero or thin FTS candidate pools. Call it once at session
+  pool telemetry (`zero_pool_rate`, `fallback_rate`, `avg_pool`, `max_pool`)
+  — whether real queries hit zero or thin FTS candidate pools, and how many
+  ran degraded keyword-only (missing numpy, or unlinked
+  `probe`/`related`/`reason`); a high `fallback_rate` means recall quality
+  data for the day came from the fallback path. Call it once at session
   start or before `contradict` / bulk `remove` to size the sweep; browse the
   actual rows with `list` (`--order retrieval|recent|stale` for
   most-recalled / newest / oldest-updated).

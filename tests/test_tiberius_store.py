@@ -803,12 +803,14 @@ def test_record_pool_upsert_and_day_roll(tmp_path, monkeypatch):
         store.record_pool(3)
         store.record_pool(0)
         store.record_pool(7)
+        store.record_pool(2, fallback=True)
         rows = store._conn.execute(
-            "SELECT day, searches, zero_pools, sum_pool, min_pool, max_pool FROM pool_stats").fetchall()
+            "SELECT day, searches, zero_pools, sum_pool, min_pool, max_pool, fallback_searches FROM pool_stats").fetchall()
         assert len(rows) == 1, "same UTC day upserts one row"
         r = rows[0]
         assert (r["day"], r["searches"], r["zero_pools"], r["sum_pool"], r["min_pool"], r["max_pool"]) \
-            == ("2026-11-01", 3, 1, 10, 0, 7)
+            == ("2026-11-01", 4, 1, 12, 0, 7)
+        assert r["fallback_searches"] == 1, "fallback=True increments only the fallback counter"
         monkeypatch.setattr("hermes_plugin_tiberius.store.datetime",
                             _FakeClock(dt.datetime(2026, 11, 2, 1, 0, tzinfo=dt.timezone.utc)))
         store.record_pool(4)
@@ -825,17 +827,43 @@ def test_stats_pools_section_shape(tmp_path, monkeypatch):
     store = MemoryStore(str(tmp_path / "pool2.db"))
     try:
         assert store.stats()["pools"] == {"days": 0, "searches": 0, "zero_pool_rate": None,
-                                          "avg_pool": None, "max_pool": None}
+                                          "fallback_rate": None, "avg_pool": None, "max_pool": None}
         now = dt.datetime.now(dt.timezone.utc)
         for i in range(2):
             monkeypatch.setattr("hermes_plugin_tiberius.store.datetime",
                                 _FakeClock(now - dt.timedelta(days=i)))
             store.record_pool(5)
             store.record_pool(0)
+        store.record_pool(5, fallback=True)
         pools = store.stats()["pools"]
-        assert pools["days"] == 2 and pools["searches"] == 4
-        assert pools["zero_pool_rate"] == 0.5
-        assert pools["avg_pool"] == 2.5
+        assert pools["days"] == 2 and pools["searches"] == 5
+        assert pools["zero_pool_rate"] == 0.4
+        assert pools["fallback_rate"] == 0.2
+        assert pools["avg_pool"] == 3.0
         assert pools["max_pool"] == 5
+    finally:
+        store.close()
+
+
+def test_pool_stats_gains_fallback_column_on_upgrade(tmp_path):
+    """docs/fallback-counter.md: a pre-fallback-counter pool_stats table (shipped
+    v0.6.11) gets the column on next open; existing rows read 0."""
+    db = str(tmp_path / "old.db")
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "CREATE TABLE pool_stats (day TEXT PRIMARY KEY, searches INTEGER NOT NULL DEFAULT 0, "
+        "zero_pools INTEGER NOT NULL DEFAULT 0, sum_pool INTEGER NOT NULL DEFAULT 0, "
+        "min_pool INTEGER NOT NULL DEFAULT 0, max_pool INTEGER NOT NULL DEFAULT 0)")
+    conn.execute("INSERT INTO pool_stats (day, searches) VALUES ('2026-10-30', 3)")
+    conn.commit()
+    conn.close()
+    store = MemoryStore(db)
+    try:
+        cols = {row[1] for row in store._conn.execute("PRAGMA table_info(pool_stats)").fetchall()}
+        assert "fallback_searches" in cols, "upgrade adds the column"
+        row = store._conn.execute("SELECT searches, fallback_searches FROM pool_stats").fetchone()
+        assert (row["searches"], row["fallback_searches"]) == (3, 0), "legacy row reads 0 fallbacks"
+        store.record_pool(2, fallback=True)
+        assert store._conn.execute("SELECT fallback_searches FROM pool_stats ORDER BY day DESC").fetchone()[0] == 1
     finally:
         store.close()

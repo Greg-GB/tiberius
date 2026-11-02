@@ -75,12 +75,13 @@ CREATE TABLE IF NOT EXISTS memory_banks (
 );
 
 CREATE TABLE IF NOT EXISTS pool_stats (
-    day        TEXT PRIMARY KEY,
-    searches   INTEGER NOT NULL DEFAULT 0,
-    zero_pools INTEGER NOT NULL DEFAULT 0,
-    sum_pool   INTEGER NOT NULL DEFAULT 0,
-    min_pool   INTEGER NOT NULL DEFAULT 0,
-    max_pool   INTEGER NOT NULL DEFAULT 0
+    day               TEXT PRIMARY KEY,
+    searches          INTEGER NOT NULL DEFAULT 0,
+    zero_pools        INTEGER NOT NULL DEFAULT 0,
+    sum_pool          INTEGER NOT NULL DEFAULT 0,
+    min_pool          INTEGER NOT NULL DEFAULT 0,
+    max_pool          INTEGER NOT NULL DEFAULT 0,
+    fallback_searches INTEGER NOT NULL DEFAULT 0
 );
 """
 
@@ -230,6 +231,16 @@ class MemoryStore:
                 add_column_if_missing(self._conn, "facts", "origin", "origin TEXT")
             except ImportError:
                 self._conn.execute("ALTER TABLE facts ADD COLUMN origin TEXT")
+        # fallback-counter: how many of the day's FTS searches ran in degraded
+        # keyword-only mode (probe/related/reason FTS fallback, or search with the
+        # HRR term disabled). Same double-check shape as origin.
+        pool_cols = {row[1] for row in self._conn.execute("PRAGMA table_info(pool_stats)").fetchall()}
+        if "fallback_searches" not in pool_cols:
+            try:
+                from hermes_cli.sqlite_util import add_column_if_missing
+                add_column_if_missing(self._conn, "pool_stats", "fallback_searches", "fallback_searches INTEGER NOT NULL DEFAULT 0")
+            except ImportError:
+                self._conn.execute("ALTER TABLE pool_stats ADD COLUMN fallback_searches INTEGER NOT NULL DEFAULT 0")
         self._conn.commit()
         self._backfill_vectors()
 
@@ -531,22 +542,24 @@ class MemoryStore:
                    f"ORDER BY {order_map[order]} LIMIT ?")
             return [dict(r) for r in self._conn.execute(sql, params).fetchall()]
 
-    def record_pool(self, size: int) -> None:
+    def record_pool(self, size: int, fallback: bool = False) -> None:
         """Upsert today's (UTC) pool-size row — retrieval telemetry for the #8
-        semantic-recall decision gate (docs/pool-counters.md). Bounded by
+        semantic-recall decision gate (docs/pool-counters.md). `fallback` marks
+        degraded keyword-only searches (docs/fallback-counter.md). Bounded by
         construction: one row per UTC day, no query text, no per-query history.
         Telemetry only — callers wrap this so a failure never fails the search."""
         with self._lock:
             day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             self._write(
-                "INSERT INTO pool_stats (day, searches, zero_pools, sum_pool, min_pool, max_pool) "
-                "VALUES (?, 1, ?, ?, ?, ?) "
+                "INSERT INTO pool_stats (day, searches, zero_pools, sum_pool, min_pool, max_pool, fallback_searches) "
+                "VALUES (?, 1, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(day) DO UPDATE SET searches = searches + 1, "
                 "zero_pools = zero_pools + excluded.zero_pools, "
                 "sum_pool = sum_pool + excluded.sum_pool, "
                 "min_pool = MIN(min_pool, excluded.min_pool), "
-                "max_pool = MAX(max_pool, excluded.max_pool)",
-                (day, 1 if size == 0 else 0, size, size, size))
+                "max_pool = MAX(max_pool, excluded.max_pool), "
+                "fallback_searches = fallback_searches + excluded.fallback_searches",
+                (day, 1 if size == 0 else 0, size, size, size, 1 if fallback else 0))
 
     def stats(self) -> dict:
         """Orientation aggregates: total facts, entity count, category mix,
@@ -573,16 +586,18 @@ class MemoryStore:
             pools_row = self._conn.execute(
                 "SELECT COUNT(*) AS days, COALESCE(SUM(searches), 0) AS searches, "
                 "COALESCE(SUM(zero_pools), 0) AS zero_pools, COALESCE(SUM(sum_pool), 0) AS sum_pool, "
-                "COALESCE(MAX(max_pool), 0) AS max_pool "
+                "COALESCE(MAX(max_pool), 0) AS max_pool, "
+                "COALESCE(SUM(fallback_searches), 0) AS fallback_searches "
                 "FROM pool_stats WHERE day >= date('now', '-6 days')").fetchone()
             if pools_row["searches"]:
                 pools = {"days": pools_row["days"], "searches": pools_row["searches"],
                          "zero_pool_rate": round(pools_row["zero_pools"] / pools_row["searches"], 4),
+                         "fallback_rate": round(pools_row["fallback_searches"] / pools_row["searches"], 4),
                          "avg_pool": round(pools_row["sum_pool"] / pools_row["searches"], 2),
                          "max_pool": pools_row["max_pool"]}
             else:
                 pools = {"days": 0, "searches": 0, "zero_pool_rate": None,
-                         "avg_pool": None, "max_pool": None}
+                         "fallback_rate": None, "avg_pool": None, "max_pool": None}
             return {"total": total, "entities": entities, "by_category": by_category,
                     "by_origin": by_origin,
                     "trust_buckets": trust_buckets, "stale_count": stale, "pools": pools}

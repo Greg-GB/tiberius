@@ -142,10 +142,14 @@ Files:
   young. Every fact-level fix is made with the report in hand (`docs/hygiene.md`).
 - **Pool telemetry**: every FTS `search` counts its final candidate pool into a
   daily row (`pool_stats` — one row per UTC day: searches, zero-pools,
-  pool-size aggregates). `stats` reports the trailing-7-day section
-  (`zero_pool_rate`, `avg_pool`, `max_pool`) — the production input for the
-  gated semantic-recall decision. No query text stored; add-time duplicate
-  detection and the hygiene scan don't count (`docs/pool-counters.md`).
+  pool-size aggregates, fallback searches). `stats` reports the trailing-7-day
+  section (`zero_pool_rate`, `fallback_rate`, `avg_pool`, `max_pool`) — the
+  production input for the gated semantic-recall decision. `fallback_rate`
+  marks degraded keyword-only searches (missing numpy, or
+  `probe`/`related`/`reason` with nothing structurally linked), so a silent
+  numpy loss shows up in telemetry instead of hiding inside the pool numbers.
+  No query text stored; add-time duplicate detection and the hygiene scan
+  don't count (`docs/pool-counters.md`, `docs/fallback-counter.md`).
 - **Episodic decisions**: a convention, not an engine. Decisions and dated
   events are stored with category `episodic` and the content shape
   `YYYY-MM-DD: <decision> — <alternatives> — <reason>` (one line; the date
