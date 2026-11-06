@@ -157,6 +157,15 @@ Files:
   Recall uses the existing surfaces: `list --category episodic --since
   <date>` is the decision timeline, `search` and `probe` work as usual. No
   code — the guard test pins the shape (`docs/episodic-convention.md`).
+- **Cross-store recall**: read-only shared stores — `read_stores` opens other
+  stores (say, a shared ops store other profiles run under) as `mode=ro`
+  sources for `search` and `probe`; per-store top-N results are pooled,
+  re-ranked by score, and truncated to the global limit. Rows are tagged
+  `store` only when 2+ stores contribute, so single-store output is
+  byte-identical. A schema gate excludes missing or incompatible stores with
+  a logged warning; read stores are never written and never receive telemetry
+  — one writer, many readers. Opt-in per profile; unset is zero behavior
+  change (`docs/cross-store.md`).
 - **Quality gates**: the core test suite (runs anywhere — `python -m pytest -q`),
   the plugin unit tests, Hermes-provider tests (need a Hermes environment), and
   a 19-query golden recall eval (`eval/`) that any retrieval change must not
