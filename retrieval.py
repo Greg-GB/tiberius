@@ -44,8 +44,13 @@ class FactRetriever:
 
     def __init__(self, store: MemoryStore, temporal_decay_half_life: int = 0,  # days, 0 = disabled
                  fts_weight: float = 0.4, jaccard_weight: float = 0.3, hrr_weight: float = 0.3,
-                 hrr_dim: int | None = None):
+                 hrr_dim: int | None = None, telemetry: bool = True):
         self.store, self.half_life = store, temporal_decay_half_life
+        # Telemetry (pool recording + retrieval-count updates) is primary-store only:
+        # read-only shared stores (docs/cross-store.md) must not be written by recall.
+        # A default retriever over a read-only store is refused here, at the one
+        # place where the combination could be made.
+        self.telemetry = telemetry and not store.read_only
         self.hrr_dim = hrr_dim if hrr_dim is not None else store.hrr_dim  # store dim is the truth for existing blobs
         if hrr_weight > 0 and not hrr._HAS_NUMPY:  # redistribute weights without numpy
             fts_weight, jaccard_weight, hrr_weight = 0.6, 0.4, 0.0
@@ -206,7 +211,8 @@ class FactRetriever:
         results = self._search_impl(query, category, min_trust, limit, since=since,
                                     categories=categories, exclude_category=exclude_category,
                                     origin=origin, exclude_origin=exclude_origin)
-        self._record_pool()
+        if self.telemetry:
+            self._record_pool()
         return results
 
     def _record_pool(self) -> None:
@@ -268,7 +274,8 @@ class FactRetriever:
 
     def _recorded(self, results: list) -> list:
         """Record returned facts as retrievals (retrieval_count) and pass them through unchanged."""
-        self._record_retrievals(results)
+        if self.telemetry:
+            self._record_retrievals(results)
         return results
 
     def _record_retrievals(self, facts: list) -> None:

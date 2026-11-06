@@ -42,6 +42,7 @@ _HERMES_ONLY_TESTS = {
     "test_tiberius_profile_db_path.py": "hermes_yaml",
     "test_tiberius_save_config.py": "hermes_yaml",
     "test_tiberius_shutdown_closes_db.py": "hermes_yaml",
+    "test_tiberius_hermes_cross_store.py": "agent",
 }
 collect_ignore = [
     name

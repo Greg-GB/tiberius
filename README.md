@@ -215,6 +215,7 @@ Config in `config.yaml` under `plugins.tiberius`:
 | Key | Default | Description |
 |-----|---------|-------------|
 | `db_path` | `$HERMES_HOME/tiberius_store.db` | SQLite database path |
+| `read_stores` | unset | read-only shared stores that `search`/`probe` span (YAML list of paths, or comma-separated; `$HERMES_HOME` expands) — cross-profile recall, one writer many readers (`docs/cross-store.md`) |
 | `auto_extract` | `false` | Auto-extract facts at session end |
 | `default_trust` | `0.5` | Default trust score for new facts |
 | `hrr_dim` | `1024` | HRR vector dimensions |
