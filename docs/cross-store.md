@@ -1,7 +1,7 @@
 # Cross-store recall (read-only shared stores)
 
-Status: **in development** — `feat/cross-store-recall` branch (one standalone
-doc per branch; no roadmap index).
+Status: **shipped** — v0.6.15 (2026-11-06). One standalone doc per branch
+(no roadmap index).
 
 ## Problem
 
