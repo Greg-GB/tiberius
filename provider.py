@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -16,7 +17,7 @@ from tools.registry import tool_error
 from utils import is_truthy_value
 from .brief import brief
 from .drift import drift
-from .store import MemoryStore, extract_statements
+from .store import MemoryStore, StoreIncompatible, extract_statements
 from .retrieval import FactRetriever
 from hermes_cli.config import cfg_get
 
@@ -32,7 +33,7 @@ FACT_STORE_SCHEMA = {
     "description": (
         "Deep structured memory with algebraic reasoning. Use alongside the memory tool — memory for always-on "
         "context, fact_store for deep recall and compositional queries.\n\nACTIONS (simple → powerful):\n"
-        "• add — Store a fact the user would expect you to remember. When a near-identical existing fact exists it is returned as possible_duplicates with a note — remove the older one if it's a true duplicate.\n• search — Keyword lookup ('editor config', 'deploy process'). 'search'/'brief' also take 'categories' (IN list) and 'exclude_category' to filter the candidate pool — e.g. drop 'skill' facts that dilute generic queries. 'origin'/'exclude_origin' filter by writer (which profile:session, cli, skill-sync or opencode wrote a fact); every recall action accepts them.\n"
+        "• add — Store a fact the user would expect you to remember. When a near-identical existing fact exists it is returned as possible_duplicates with a note — remove the older one if it's a true duplicate.\n• search — Keyword lookup ('editor config', 'deploy process'). 'search'/'brief' also take 'categories' (IN list) and 'exclude_category' to filter the candidate pool — e.g. drop 'skill' facts that dilute generic queries. 'origin'/'exclude_origin' filter by writer (which profile:session, cli, skill-sync or opencode wrote a fact); every recall action accepts them. With read_stores configured, 'search' and 'probe' also span those read-only shared stores (rows from more than one store carry a 'store' tag; writes always hit the primary store).\n"
         "• probe — Entity recall: ALL facts about a person/thing. Pass several via the 'entities' param for the union (facts about ANY of them); 'reason' is the ALL-of-them shape.\n• related — What connects to an entity? Structural adjacency.\n"
         "• brief — One-call context pack for a task: search + entity probe, token-budgeted (whole facts only, "
         "default 300) with a window marker (how many more matches exist). Use it when starting a task instead of "
@@ -197,6 +198,7 @@ class TiberiusMemoryProvider(MemoryProvider):
     def __init__(self, config: dict | None = None):
         self._config = config or _load_plugin_config()
         self._store = self._retriever = None
+        self._read_stores: list = []  # [(configured path, MemoryStore, FactRetriever)] — opened in initialize()
         self._min_trust = float(self._config.get("min_trust_threshold", 0.3))
         # Skill catalog (docs/skill-retrieval.md §4): everything skill-related is gated on
         # skill_dirs — unset means zero behavior change (no sync, no block, no feedback).
@@ -242,6 +244,7 @@ class TiberiusMemoryProvider(MemoryProvider):
     def get_config_schema(self):
         return [
             {"key": "db_path", "description": "SQLite database path", "default": _DEFAULT_DB_PATH},
+            {"key": "read_stores", "description": "Read-only shared stores to include in search/probe (YAML list of paths, or comma-separated; cross-profile recall)", "default": "[]"},
             {"key": "auto_extract", "description": "Auto-extract facts at session end", "default": "false", "choices": ["true", "false"]},
             {"key": "default_trust", "description": "Default trust score for new facts", "default": "0.5"},
             {"key": "hrr_dim", "description": "HRR vector dimensions", "default": "1024"},
@@ -257,6 +260,29 @@ class TiberiusMemoryProvider(MemoryProvider):
         self._store = MemoryStore(db_path=db_path, default_trust=float(self._config.get("default_trust", 0.5)), hrr_dim=hrr_dim)
         self._retriever = FactRetriever(store=self._store, hrr_dim=hrr_dim, hrr_weight=float(self._config.get("hrr_weight", 0.3)),
                                         temporal_decay_half_life=int(self._config.get("temporal_decay_half_life", 0)))
+        # Read-only shared stores (docs/cross-store.md): search/probe span these; writes never
+        # touch them. Missing or incompatible paths are excluded with a warning — a bad
+        # read_stores entry must never break the session.
+        self._read_stores = []
+        raw_reads = self._config.get("read_stores") or []
+        if isinstance(raw_reads, str):
+            raw_reads = raw_reads.split(",")
+        for raw_path in raw_reads:
+            if not isinstance(raw_path, str):
+                continue
+            raw_path = raw_path.strip()
+            if not raw_path:
+                continue
+            path = raw_path.replace("$HERMES_HOME", _hermes_home).replace("${HERMES_HOME}", _hermes_home)
+            try:
+                rs = MemoryStore(db_path=path, default_trust=float(self._config.get("default_trust", 0.5)),
+                                 hrr_dim=hrr_dim, read_only=True)
+            except (OSError, ValueError, sqlite3.Error, StoreIncompatible) as exc:
+                logger.warning("tiberius read store %s excluded from recall (non-fatal): %s", raw_path, exc)
+                continue
+            self._read_stores.append((raw_path, rs, FactRetriever(
+                store=rs, hrr_dim=hrr_dim, hrr_weight=float(self._config.get("hrr_weight", 0.3)),
+                temporal_decay_half_life=int(self._config.get("temporal_decay_half_life", 0)), telemetry=False)))
         self._session_id = session_id
         # New session: skill state starts fresh (floor re-offered, seen-set and feedback
         # de-dupe cleared) — the provider instance is shared across a profile's sessions.
@@ -447,6 +473,12 @@ class TiberiusMemoryProvider(MemoryProvider):
                 self._store.close()
             except Exception as e:
                 logger.debug("Tiberius shutdown close() failed: %s", e)
+        for _name, rs, _ret in self._read_stores:  # read-only stores: release our references
+            try:
+                rs.close()
+            except Exception as e:
+                logger.debug("Tiberius shutdown read-store close() failed: %s", e)
+        self._read_stores = []
         self._store = self._retriever = None
 
     # Tool handlers (self, args) -> str. KeyError from args[...] / Exception -> tool_error in handle_tool_call;
@@ -457,12 +489,43 @@ class TiberiusMemoryProvider(MemoryProvider):
         return _results(getattr(self._retriever, method)(a["entity"], category=a.get("category"), limit=_limit(a),
                                                          origin=a.get("origin"), exclude_origin=a.get("exclude_origin")))
 
+    def _search_action(self, a: dict) -> str:
+        """'search': primary store plus any read-only shared stores (docs/cross-store.md) —
+        per-store top-N, re-rank by score, truncate to the global limit."""
+        kw = dict(category=a.get("category"), min_trust=float(a.get("min_trust", self._min_trust)),
+                  limit=_limit(a), since=a.get("since"),
+                  categories=a.get("categories"), exclude_category=a.get("exclude_category"),
+                  origin=a.get("origin"), exclude_origin=a.get("exclude_origin"))
+        per = [(None, self._retriever.search(a["query"], **kw))]
+        for name, _rs, ret in self._read_stores:
+            per.append((name, ret.search(a["query"], **kw)))
+        return _results(self._merged(per, _limit(a)))
+
+    def _merged(self, per: list, limit: int) -> list:
+        """Merge per-store recall: top-`limit` from each store, re-rank by score, truncate to
+        the global `limit`. Rows get a 'store' tag only when more than one store contributes —
+        single-store output stays byte-identical (no new key)."""
+        if len(per) == 1:
+            return list(per[0][1])
+        merged = []
+        for name, rows in per:
+            for row in rows:
+                row["store"] = "primary" if name is None else name
+                merged.append(row)
+        merged.sort(key=lambda r: r.get("score", 0.0), reverse=True)
+        return merged[:limit]
+
     def _probe(self, a: dict) -> str:
         """\"probe\": one entity (`entity`) or N-entity union (`entities`: facts linked to any of them,
-        the OR counterpart of `reason`). `entities` takes precedence when present."""
+        the OR counterpart of `reason`). `entities` takes precedence when present. With read_stores
+        configured, the probe spans the read-only shared stores too (docs/cross-store.md)."""
         names = a.get("entities") or a["entity"]
-        return _results(self._retriever.probe(names, category=a.get("category"), limit=_limit(a),
-                                              origin=a.get("origin"), exclude_origin=a.get("exclude_origin")))
+        per = [(None, self._retriever.probe(names, category=a.get("category"), limit=_limit(a),
+                                            origin=a.get("origin"), exclude_origin=a.get("exclude_origin")))]
+        for name, _rs, ret in self._read_stores:
+            per.append((name, ret.probe(names, category=a.get("category"), limit=_limit(a),
+                                        origin=a.get("origin"), exclude_origin=a.get("exclude_origin"))))
+        return _results(self._merged(per, _limit(a)))
 
     def _add(self, a: dict) -> str:
         """'add': store the fact and report near-duplicate candidates (report-only — the caller removes if it agrees)."""
@@ -499,11 +562,7 @@ class TiberiusMemoryProvider(MemoryProvider):
     _TOOL_HANDLERS = {
         "fact_store": _tool_handler({
             "add": lambda self, a: self._add(a),
-            "search": lambda self, a: _results(self._retriever.search(
-                a["query"], category=a.get("category"), min_trust=float(a.get("min_trust", self._min_trust)),
-                limit=_limit(a), since=a.get("since"),
-                categories=a.get("categories"), exclude_category=a.get("exclude_category"),
-                origin=a.get("origin"), exclude_origin=a.get("exclude_origin"))),
+            "search": lambda self, a: self._search_action(a),
             "probe": lambda self, a: self._probe(a),
             "show": lambda self, a: self._show(a),
             "entities": lambda self, a: self._entities(a),

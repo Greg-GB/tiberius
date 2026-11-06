@@ -118,6 +118,13 @@ _ENTITY_LOOKUPS = ("SELECT entity_id FROM entities WHERE name = ? COLLATE NOCASE
                    "SELECT entity_id FROM entities WHERE ',' || aliases || ',' LIKE '%,' || ? || ',%'")
 
 
+class StoreIncompatible(RuntimeError):
+    """A read-only store (docs/cross-store.md) lacks schema this build's recall needs.
+
+    The caller excludes the store with a warning; the session itself stays up.
+    """
+
+
 def _clamp_trust(value: float) -> float:
     return max(0.0, min(1.0, value))
 
@@ -166,14 +173,44 @@ class MemoryStore:
     _shared: dict = {}
     _shared_guard = threading.Lock()
 
-    def __init__(self, db_path: "str | Path | None" = None, default_trust: float = 0.5, hrr_dim: int = 1024) -> None:
+    def __init__(self, db_path: "str | Path | None" = None, default_trust: float = 0.5, hrr_dim: int = 1024,
+                 read_only: bool = False) -> None:
         if db_path is None:
+            if read_only:
+                raise ValueError("a read-only store needs an explicit db_path")
             from hermes_constants import get_hermes_home
             db_path = str(get_hermes_home() / "tiberius_store.db")
         self.db_path = Path(db_path).expanduser()
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.default_trust, self.hrr_dim, self._hrr_available = _clamp_trust(default_trust), hrr_dim, hrr._HAS_NUMPY
-        try:  # resolve() so symlinked/relative paths to the same file share ONE connection
+        self.read_only = read_only
+        if read_only:
+            # Read-only shared store (docs/cross-store.md): same shared-connection registry,
+            # but a mode-suffixed key so read-only instances never share a connection with
+            # read-write instances of the same file. No schema init, no WAL switch, no
+            # writes — recall reads the file as the primary store last left it.
+            if not self.db_path.is_file():
+                raise FileNotFoundError(f"read store not found: {self.db_path}")
+            try:  # resolve() so symlinked/relative paths to the same file share one connection
+                self._key = str(self.db_path.resolve()) + "|ro"
+            except OSError:
+                self._key = str(self.db_path) + "|ro"
+            with MemoryStore._shared_guard:
+                entry = MemoryStore._shared.get(self._key)
+                if entry is None:
+                    conn = sqlite3.connect(f"file:{self.db_path}?mode=ro", uri=True,
+                                           check_same_thread=False, timeout=10.0)
+                    conn.row_factory = sqlite3.Row
+                    entry = MemoryStore._shared[self._key] = {
+                        "conn": conn, "lock": threading.RLock(), "refs": 0, "ready": False}
+                entry["refs"] += 1
+                self._entry, self._conn, self._lock = entry, entry["conn"], entry["lock"]
+            with self._lock:
+                if not entry["ready"]:
+                    self._validate_read_schema()
+                    entry["ready"] = True
+            return
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        try:  # resolve() so symlinked/relative paths to the same file share one connection
             self._key = str(self.db_path.resolve())
         except OSError:
             self._key = str(self.db_path)
@@ -261,10 +298,30 @@ class MemoryStore:
             "VALUES (new.fact_id, new.content, new.tags); END")
         self._conn.commit()
 
+    def _validate_read_schema(self) -> None:
+        """Schema-compatibility gate for read-only stores (docs/cross-store.md).
+
+        The store carries no version number — it evolves by additive column
+        upgrades — so the gate checks what recall actually reads: the four
+        tables plus the fact columns every query path SELECTs. A store too
+        old for this build is excluded by the caller, not a crash for the
+        session.
+        """
+        tables = {row[0] for row in self._conn.execute("SELECT name FROM sqlite_master")}
+        missing = {"facts", "entities", "fact_entities", "facts_fts"} - tables
+        cols = {row[1] for row in self._conn.execute("PRAGMA table_info(facts)")}
+        missing |= {"fact_id", "content", "category", "tags", "trust_score", "retrieval_count",
+                    "helpful_count", "created_at", "updated_at", "hrr_vector", "superseded_by",
+                    "origin"} - cols
+        if missing:
+            raise StoreIncompatible(f"read store {self.db_path} is missing: {', '.join(sorted(missing))}")
+
     def _one(self, sql: str, params=()):
         return self._conn.execute(sql, params).fetchone()
 
     def _write(self, sql: str, params=()) -> sqlite3.Cursor:
+        if self.read_only:
+            raise RuntimeError("read-only store: writes are primary-store only (docs/cross-store.md)")
         cur = self._conn.execute(sql, params)
         self._conn.commit()
         return cur
