@@ -27,9 +27,11 @@ Steps:
    Move processed files to `dream_queue/done/` — including
    report-only ones, so nothing is re-attempted nightly. Prune
    `done/` files older than 14 days.
-2. Standard pass: `fact_store` with `action=contradict`,
-   `action=drift`, `action=hygiene`. Fix only what has transcript or
-   hard evidence; everything else is report-only.
+2. Standard pass: `fact_store` with `action=contradict`, `action=drift`,
+   `action=hygiene`. Drift needs a project name — pass the profile name;
+   "no plan facts" for that project is a valid N/A (note it, move on).
+   Fix only what has transcript or hard evidence; everything else is
+   report-only.
 3. Never duplicate facts that already live in the memory file or in
    skills. Never write self-logging (logs of the dream itself) into the
    store.

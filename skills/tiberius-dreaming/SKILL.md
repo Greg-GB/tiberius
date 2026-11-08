@@ -30,7 +30,8 @@ predictions; the transcript is the ground truth that verifies them.
    commits/branches via git if present. Repair via
    `fact_store`: `update`/`supersede` to correct, `merge` to dedup,
    `fact_feedback` to rate. Move processed files to `dream_queue/done/`.
-2. Standard pass: `fact_store` with `contradict`, `drift`, `hygiene`.
+2. Standard pass: `fact_store` with `contradict`, `drift` (pass the
+   profile name as project; "no plan facts" = N/A), `hygiene`.
    Fix only what has transcript or hard evidence; everything else is
    report-only.
 3. Never duplicate facts already in the memory file or in skills.
