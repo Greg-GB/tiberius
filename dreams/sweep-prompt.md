@@ -24,7 +24,9 @@ Steps:
    (`update`/`supersede` to correct, `merge` to dedup, `fact_feedback`
    to rate) and record the lesson as an episodic fact (shape
    `YYYY-MM-DD: ...`; see the doc's Spike section for the template).
-   Move processed files to `dream_queue/done/`.
+   Move processed files to `dream_queue/done/` — including
+   report-only ones, so nothing is re-attempted nightly. Prune
+   `done/` files older than 14 days.
 2. Standard pass: `fact_store` with `action=contradict`,
    `action=drift`, `action=hygiene`. Fix only what has transcript or
    hard evidence; everything else is report-only.
