@@ -14,9 +14,13 @@ Steps:
 
 1. Queue: list `$HERMES_HOME/profiles/<profile>/dream_queue/*.json`.
    Each file is one marked salient-failure event (`ts`, `source`,
-   `session_id`, `event`, `summary`, `evidence`, `fact_ids`). For each:
-   verify the claim against the session transcript via `session_search`
-   (session id is in the file), then repair via the `fact_store` actions
+   `session_id`, `event`, `summary`, `evidence`, `fact_ids`). Verify the
+   claim against the transcript:
+   `source=hermes` → `session_search` (session id is in the file);
+   `source=opencode` → the mark's `evidence` field IS the transcript (the
+   plugin records the decisive lines) — trust it, check referenced
+   commits/branches via git if present. Then repair via the `fact_store`
+   actions
    (`update`/`supersede` to correct, `merge` to dedup, `fact_feedback`
    to rate) and record the lesson as an episodic fact (shape
    `YYYY-MM-DD: ...`; see the doc's Spike section for the template).

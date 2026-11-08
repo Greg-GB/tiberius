@@ -23,8 +23,11 @@ predictions; the transcript is the ground truth that verifies them.
 ## Dream pass (on demand or nightly)
 
 1. Drain the queue: read each mark in
-   `dream_queue/*.json`. Verify the claim against the session transcript
-   (`session_search`, the session id is in the file). Repair via
+   `dream_queue/*.json`. Verify the claim against the transcript:
+   `source=hermes` → `session_search` (session id is in the file);
+   `source=opencode` → the mark's `evidence` field IS the transcript (the
+   plugin records the decisive lines) — trust it, check referenced
+   commits/branches via git if present. Repair via
    `fact_store`: `update`/`supersede` to correct, `merge` to dedup,
    `fact_feedback` to rate. Move processed files to `dream_queue/done/`.
 2. Standard pass: `fact_store` with `contradict`, `drift`, `hygiene`.
