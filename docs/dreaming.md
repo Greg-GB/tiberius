@@ -175,7 +175,7 @@ no new failures writes nothing (dedupe).
 | `docs/dreaming.md` (this doc) | tiberius | done |
 | `dreams/sweep-prompt.md` (cron job body) | tiberius | done |
 | Opencode mark + test (`opencode/index.ts`, `opencode/tests/index.test.ts`) | opencode | pending |
-| README bullet ("What's changed vs upstream") | tiberius | at merge |
+| README bullet ("What's changed vs upstream") — must say opt-in and link `docs/dreaming.md` (new installs get the provider, not the behavior; the bullet is the only route to the enablement recipe) | tiberius | at merge |
 | Runtime wiring (cron job, queue dirs, standing rule) | tiberius | live on tiberius profile |
 
 Explicitly out of scope: targeting-query code (composed from existing
