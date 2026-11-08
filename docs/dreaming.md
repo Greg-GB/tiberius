@@ -1,8 +1,8 @@
 # Dreaming (offline memory consolidation)
 
 Status: **design complete** — spike 2026-11-06. Implementation: opencode
-mark + test pending (see Implementation table); docs, sweep prompt, and
-runtime wiring live on the tiberius profile.
+mark + test pending (see Implementation table); docs, sweep prompt,
+bundled skill, and runtime wiring live on the tiberius profile.
 
 An offline LLM pass that replays session transcripts, checks stored facts
 against what actually happened, and repairs the store through the existing
@@ -161,12 +161,16 @@ no new failures writes nothing (dedupe).
 
 ## Per-profile enablement
 
-1. `mkdir -p $HERMES_HOME/profiles/<profile>/dream_queue/done`
-2. Standing rule in the profile's memory (one line): salient failure in
-   session → write mark file, plus spawn a dream subagent
-   (`delegate_task`) for live sessions.
+1. Queue dir: `mkdir -p $HERMES_HOME/profiles/<profile>/dream_queue/done`
+   (the skill creates it on first mark; only needed in advance for the
+   cron sweep).
+2. In-session behavior: the bundled skill `tiberius-dreaming` ships with
+   the plugin and is discovered automatically — zero steps for a fresh
+   install. Optional reinforcement: a one-line standing rule in the
+   profile's memory (tiberius runs both).
 3. Cron sweep from `dreams/sweep-prompt.md` (nightly 03:00, continuity
-   on, deliver to the profile's bot chat).
+   on, deliver to the profile's bot chat) — opt-in; the plugin never
+   schedules it.
 
 ## Implementation (this PR)
 
@@ -178,6 +182,7 @@ no new failures writes nothing (dedupe).
 | Opencode mark + test (`opencode/index.ts`, `opencode/tests/index.test.ts`) | opencode | pending |
 | README bullet ("What's changed vs upstream") — must say opt-in and link `docs/dreaming.md` (new installs get the provider, not the behavior; the bullet is the only route to the enablement recipe) | tiberius | at merge |
 | Runtime wiring (cron job, queue dirs, standing rule) | tiberius | live on tiberius profile |
+| Release: version bump (`plugin.yaml`, `pyproject.toml`, `opencode/package.json` + lock), doc Status → shipped, tag `vX.Y.Z` on the release commit | tiberius | post-merge |
 
 Explicitly out of scope: targeting-query code (composed from existing
 actions), cross-store reconciliation (Phase 3, design only), entity

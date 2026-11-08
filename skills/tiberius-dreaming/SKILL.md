@@ -5,16 +5,17 @@ description: "Use when a salient failure occurs in a tiberius-memory session (us
 
 # Dreaming: mark failures, consolidate offline
 
-Design: `docs/dreaming.md` in the tiberius plugin repo. Facts are
-predictions; the transcript is the ground truth that verifies them.
+Design: `docs/dreaming.md` in the tiberius package (or its repo). Facts
+are predictions; the transcript is the ground truth that verifies them.
 
 ## On a salient failure (in-session)
 
 1. Write one JSON file:
    `$HERMES_HOME/profiles/<profile>/dream_queue/<source>-<session_id>-<turn_id>.json`
    (create the dir if missing). Fields per the "Queue file format"
-   section of `docs/dreaming.md`. One file per session + event + turn —
-   never write the same mark twice.
+   section of `docs/dreaming.md`: `ts`, `source`, `session_id`, `event`,
+   `summary`, `evidence`, `fact_ids`. One file per session + event +
+   turn — never write the same mark twice.
 2. No LLM at mark time; one write. Cost is a file.
 3. Live session and the failure is serious: optionally spawn a dream
    subagent (delegate_task) with the mark file plus the "Dream pass"
@@ -29,7 +30,9 @@ predictions; the transcript is the ground truth that verifies them.
    plugin records the decisive lines) — trust it, check referenced
    commits/branches via git if present. Repair via
    `fact_store`: `update`/`supersede` to correct, `merge` to dedup,
-   `fact_feedback` to rate. Move processed files to `dream_queue/done/`.
+   `fact_feedback` to rate. Move processed files to `dream_queue/done/`
+   — including report-only ones, so nothing is re-attempted; prune
+   `done/` files older than 14 days.
 2. Standard pass: `fact_store` with `contradict`, `drift` (pass the
    profile name as project; "no plan facts" = N/A), `hygiene`.
    Fix only what has transcript or hard evidence; everything else is
@@ -42,6 +45,6 @@ predictions; the transcript is the ground truth that verifies them.
 ## Nightly sweep (opt-in)
 
 If the user wants a recurring pass, create a cron job from
-`dreams/sweep-prompt.md` in the plugin repo (0 3 * * * UTC, continuity
-on, deliver to the profile's bot chat). Do not create the job unless the
-user asks — it is a recurring LLM run.
+`dreams/sweep-prompt.md` in the package (or repo; 0 3 * * * UTC,
+continuity on, deliver to the profile's bot chat). Do not create the job
+unless the user asks — it is a recurring LLM run.
