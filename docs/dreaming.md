@@ -11,7 +11,7 @@ already has `fact_store`, `fact_feedback`, and `session_search` tools.
 
 ## Why
 
-Model on Anthropic's "components of agent memory": memory entries are
+Industry-standard memory consolidation: memory entries are
 predictions about what future sessions need; offline replay ("dreaming")
 verifies those predictions against transcript ground truth and reorganizes.
 Two findings drive the design:
@@ -59,8 +59,9 @@ corrections, each with transcript evidence:
    object, verified via `/releases`; a merged version bump is not enough.
 
 Deliberately did **not** duplicate the PM-stamp pitfall (already in memory
-file + `tiberius-workflow` skill). Redundant storage is the failure mode
-the article's weaker model exhibited (413 stale files vs 9 useful ones).
+file + `tiberius-workflow` skill). Redundant storage is the classic
+failure mode of naive consolidation — stale entries pile up and bury the
+useful ones.
 
 ## Design
 
@@ -75,7 +76,7 @@ appends one JSON file to the dream queue
 its `done/` subdir):
 session id, what failed, why, fact ids involved. Cost: one write.
 Salience judged by the model at event time, where the cause is in
-context — the article warns against fixed salience rules, and event-time
+context — fixed salience rules underperform, and event-time
 judgment beats nightly re-derivation from transcripts.
 
 **Layer 2 — dream (async).**
@@ -101,7 +102,7 @@ into the store (no self-logging).
 three existing actions: `drift` (`unbacked`), `hygiene` (low-trust),
 `contradict` (pairs), plus recall counts from `stats`. The dreamer runs
 all three each pass and concentrates on facts likely to have changed, not
-the whole store (cadence point from the article). A dedicated action
+the whole store (consolidation cadence). A dedicated action
 only if composing the three becomes a bottleneck.
 
 **Phase 3 — cross-store reconciliation.** Shared store as ground truth;
