@@ -83,6 +83,14 @@ CREATE TABLE IF NOT EXISTS pool_stats (
     max_pool          INTEGER NOT NULL DEFAULT 0,
     fallback_searches INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS query_misses (
+    day   TEXT NOT NULL,
+    query TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 1,
+    ts    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (day, query)
+);
 """
 
 _HELPFUL_DELTA, _UNHELPFUL_DELTA = 0.05, -0.10
@@ -599,11 +607,14 @@ class MemoryStore:
                    f"ORDER BY {order_map[order]} LIMIT ?")
             return [dict(r) for r in self._conn.execute(sql, params).fetchall()]
 
-    def record_pool(self, size: int, fallback: bool = False) -> None:
+    def record_pool(self, size: int, fallback: bool = False, query: str | None = None) -> None:
         """Upsert today's (UTC) pool-size row — retrieval telemetry for the #8
         semantic-recall decision gate (docs/pool-counters.md). `fallback` marks
-        degraded keyword-only searches (docs/fallback-counter.md). Bounded by
-        construction: one row per UTC day, no query text, no per-query history.
+        degraded keyword-only searches (docs/fallback-counter.md). pool_stats
+        stays bounded by construction: one row per UTC day, no query text.
+        A zero-pool search additionally logs its normalized query to
+        query_misses (miss telemetry — docs/query-misses.md): one row per UTC
+        day + query, 30-day retention pruned in the same write.
         Telemetry only — callers wrap this so a failure never fails the search."""
         with self._lock:
             day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -617,13 +628,23 @@ class MemoryStore:
                 "max_pool = MAX(max_pool, excluded.max_pool), "
                 "fallback_searches = fallback_searches + excluded.fallback_searches",
                 (day, 1 if size == 0 else 0, size, size, size, 1 if fallback else 0))
+            if size == 0 and query is not None:
+                q = " ".join(query.lower().split())[:200]  # normalize: case, whitespace, 200-char cap (query-misses.md)
+                if q:  # ponytail: whitespace-only query normalizes to '' — skip the empty miss row
+                    self._write(
+                        "INSERT INTO query_misses (day, query) VALUES (?, ?) "
+                        "ON CONFLICT(day, query) DO UPDATE SET count = count + 1, ts = CURRENT_TIMESTAMP",
+                        (day, q))
+                    self._write("DELETE FROM query_misses WHERE day < date('now', '-30 days')")
 
     def stats(self) -> dict:
         """Orientation aggregates: total facts, entity count, category mix,
         trust buckets (0.3/0.5/0.7 cuts), and the stale hygiene count
         (trust < 0.5 and updated_at older than 30 days). Read-only, no params.
         pools: trailing-7-day retrieval telemetry — zero-pool rate, weighted
-        avg pool, max pool (docs/pool-counters.md)."""
+        avg pool, max pool (docs/pool-counters.md).
+        misses: top-10 zero-pool queries over the trailing 7 days
+        (docs/query-misses.md); empty list when the table is empty."""
         with self._lock:
             total = self._one("SELECT COUNT(*) AS n FROM facts")["n"]
             entities = self._one("SELECT COUNT(*) AS n FROM entities")["n"]
@@ -655,9 +676,16 @@ class MemoryStore:
             else:
                 pools = {"days": 0, "searches": 0, "zero_pool_rate": None,
                          "fallback_rate": None, "avg_pool": None, "max_pool": None}
+            misses = [
+                {"query": r["query"], "count": r["count"], "last_day": r["last_day"]}
+                for r in self._conn.execute(
+                    "SELECT query, SUM(count) AS count, MAX(day) AS last_day FROM query_misses "
+                    "WHERE day >= date('now', '-6 days') "
+                    "GROUP BY query ORDER BY count DESC, query LIMIT 10")]
             return {"total": total, "entities": entities, "by_category": by_category,
                     "by_origin": by_origin,
-                    "trust_buckets": trust_buckets, "stale_count": stale, "pools": pools}
+                    "trust_buckets": trust_buckets, "stale_count": stale, "pools": pools,
+                    "misses": misses}
 
     def get_fact(self, fact_id: int) -> dict | None:
         """Read one fact by id: the full row plus its linked entities (name + aliases).
