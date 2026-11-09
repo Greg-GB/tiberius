@@ -239,9 +239,8 @@ inside the queue's write caps (500/4000).
 | Release: version bump (`plugin.yaml`, `pyproject.toml`, `opencode/package.json` + lock), doc Status → shipped, tag `vX.Y.Z` on the release commit | tiberius | post-merge |
 
 Explicitly out of scope: targeting-query code (composed from existing
-actions), cross-store reconciliation (Phase 3, design only), entity
-extraction fix (separate PR), config flags (feature is inert without the
-per-profile wiring above).
+actions), cross-store reconciliation (Phase 3, design only), config flags
+(feature is inert without the per-profile wiring above).
 
 ## Findings that constrain the design
 
