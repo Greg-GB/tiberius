@@ -239,6 +239,23 @@ def test_entity_extraction_covers_single_words_and_drops_sentence_start(tmp_path
     store.close()
 
 
+def test_entity_extraction_drops_label_junk_acronym_plurals_and_skill_titles(tmp_path, db_path):
+    """Single-word junk from the live store's orphan audit: label words ("Status:"), skill-title
+    imperatives ("Manage Apple Notes"), compound prefixes ("Cross-store"), acronym plurals
+    (APIs, CSVs, GPUs). Genuine proper nouns and quoted terms ("Status") are unaffected."""
+    store = MemoryStore(db_path, hrr_dim=64)
+    store.add_fact("Status: shipped — v0.6.16 on the tiberius profile")
+    store.add_fact("Manage Apple Notes from iPhone with reminders")
+    store.add_fact("The APIs and CSVs endpoints need GPUs")
+    store.add_fact("Cross-store recall spans two profiles")
+    store.add_fact('Greg said "Status" loudly to Alice')
+    names = {r["name"].lower() for r in store._conn.execute("SELECT name FROM entities").fetchall()}
+    assert {"greg", "alice", "status"} <= names  # "status" only via the quoted term
+    for junk in ("manage", "cross", "apis", "csvs", "gpus"):
+        assert junk not in names
+    store.close()
+
+
 def test_entity_resolution_is_case_insensitive(tmp_path, db_path):
     """'alice johnson' resolves to the existing 'Alice Johnson' entity, never creates a duplicate
     (contract behind the COLLATE NOCASE lookup)."""

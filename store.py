@@ -101,9 +101,12 @@ _HELPFUL_DELTA, _UNHELPFUL_DELTA = 0.05, -0.10
 _RE_MULTI_WORD_ENTITY = re.compile(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b')
 _RE_SINGLE_WORD_ENTITY = re.compile(r'\b([A-Z][a-zA-Z0-9]{3,})\b')
 _RE_QUOTED = (re.compile(r'"([^"]+)"'), re.compile(r"'([^']+)'"))
-# Common English words that get capitalized (sentence starts, pronouns, auxiliaries, frequent verbs):
-# a single-word candidate in this set is not a proper noun, and a multi-word candidate STARTING with one
-# of these is sentence-initial junk ("In The", "We Decided"). Quoted terms skip the filter (explicit intent).
+# Common English words that get capitalized (sentence starts, label words, pronouns, auxiliaries, frequent
+# verbs): a single-word candidate in this set is not a proper noun, and a multi-word candidate STARTING with
+# one of these is sentence-initial junk ("In The", "We Decided"). Quoted terms skip the filter (explicit
+# intent). The verb/adjective/noun tail (status, installed, manage, ...) was extended from the live store's
+# orphan-entity audit — skill-sync titles and doc labels ("Status: shipped", "Monitor blogs", "Manage
+# remotes") are the dominant single-word junk source.
 # static list — an LLM entity pass is the upgrade path if junk entities become measurable (backlog).
 _ENTITY_STOPWORDS = frozenset("""
     i you he she it we they me him her us them my your his its our their this that these those then there
@@ -116,6 +119,11 @@ _ENTITY_STOPWORDS = frozenset("""
     built start started stop stopped end ended plan planned try tried keep kept find found show showed
     run ran project task issue problem solution idea question answer note example case point time way
     thing things stuff corp inc ltd llc
+    audio authorization bearer browse carry cause code conduct configure control covers cross debug docs
+    edit enforce exploratory geocode graph humanize import infographics inspect installed live manage
+    monitor neutral nightly optimize orchestrate parallel protocol read records restart review reviewer
+    rule send spec standing status stock terse throwaway token track triage turn validate watch weekly
+    workers
 """.split())
 # AKA: 'X aka Y' — X is a capitalized proper-noun run (greedy \w+ swallowed whole clauses: "Alice told the team
 # that TestCorp"); Y is one word (multi-word aliases miss — regex ceiling). Lowercase 'aka' only.
@@ -780,8 +788,10 @@ class MemoryStore:
                 raw.append(m.group(1))
         for m in _RE_SINGLE_WORD_ENTITY.finditer(text):
             name = m.group(1)
-            # all-caps words (BUNDLES, LLM, SQL) are acronyms/screaming, not proper nouns
-            if outside(m) and name.lower() not in _ENTITY_STOPWORDS and any(c.islower() for c in name[1:]):
+            # all-caps words (BUNDLES, LLM, SQL) — and acronym plurals (APIs, CSVs, PWAs) — are
+            # acronyms/screaming, not proper nouns; a trailing 's' on an all-caps stem is a plural
+            stem = name[:-1] if name.endswith("s") else name
+            if outside(m) and name.lower() not in _ENTITY_STOPWORDS and any(c.islower() for c in stem[1:]):
                 raw.append(name)
         for pattern in _RE_QUOTED:
             raw += [m.group(1) for m in pattern.finditer(text) if outside(m)]
