@@ -22,8 +22,15 @@ Usage (repo dir importable as package ``tiberius``, i.e. its PARENT on PYTHONPAT
   python3 -m tiberius.cli [--db PATH] checkpoint clear <session>
   python3 -m tiberius.cli [--db PATH] skill-sync --dir DIR [--dir DIR ...] [--prune]
   echo '[{"role":"user","content":"..."}]' | python3 -m tiberius.cli [--db PATH] extract
+  python3 -m tiberius.cli dream mark --source hermes --session ID --event TYPE --turn TID --summary "..." --evidence "..." [--fact-ids 1,2]
+  python3 -m tiberius.cli dream list [--status pending|done] [--limit N]
+  python3 -m tiberius.cli dream done <mark_id>
+  python3 -m tiberius.cli dream prune [--days 14]
+  python3 -m tiberius.cli dream target [--project PROFILE]   (docs/dreaming.md)
 
 DB path: --db > $TIBERIUS_DB > ~/.tiberius/memory.db. All output is JSON on stdout.
+Dream queue path: --dream-db > $TIBERIUS_DREAM_DB > $HERMES_HOME/dream.db
+(a dedicated file — never the memory store; docs/dreaming.md).
 numpy is optional: without it the engine degrades to keyword mode (FTS5 + Jaccard,
 entity composition still via SQL; HRR reranking off).
 """
@@ -38,12 +45,53 @@ from pathlib import Path
 
 from .brief import brief
 from .drift import drift
+from .dream import EVENTS, DreamQueue, compose_target, resolve_dream_db_path
 from .retrieval import FactRetriever
 from .store import MemoryStore, extract_statements
 
 
 def _db_path(args: argparse.Namespace) -> str:
     return args.db or os.environ.get("TIBERIUS_DB") or str(Path.home() / ".tiberius" / "memory.db")
+
+
+def _dream(args: argparse.Namespace) -> int:
+    """The dream queue verbs (docs/dreaming.md). mark/list/done/prune touch only
+    the dedicated queue file; ``target`` additionally opens the memory store
+    (read-only composition from existing actions). Same JSON contract as the
+    rest of the CLI: JSON on stdout, exit 1 with {"error": ...} on failure."""
+    try:
+        q = DreamQueue(resolve_dream_db_path(args.dream_db))
+        try:
+            if args.dream_op == "mark":
+                fact_ids = [int(x) for x in args.fact_ids.split(",") if x.strip()]
+                print(json.dumps(q.mark(source=args.source, session_id=args.session, event=args.event,
+                                        turn_id=args.turn, summary=args.summary, evidence=args.evidence,
+                                        fact_ids=fact_ids)))
+                return 0
+            if args.dream_op == "list":
+                rows = q.list(status=args.status, limit=max(1, args.limit))
+                print(json.dumps({"results": rows, "count": len(rows)}))
+                return 0
+            if args.dream_op == "done":
+                print(json.dumps(q.done(args.mark_id)))
+                return 0
+            if args.dream_op == "prune":
+                print(json.dumps({"deleted": q.prune(days=max(0, args.days))}))
+                return 0
+            # target: store-side composition — the memory store joins in here
+            # (and only here) of the queue verbs.
+            store = MemoryStore(db_path=_db_path(args))
+            ret = FactRetriever(store)
+            try:
+                print(json.dumps(compose_target(ret, store, project=args.project)))
+            finally:
+                store.close()
+            return 0
+        finally:
+            q.close()
+    except (ValueError, sqlite3.Error) as exc:
+        print(json.dumps({"error": str(exc)}))
+        return 1
 
 
 def _row(r) -> dict:
@@ -224,6 +272,7 @@ def _skill_sync(args: argparse.Namespace, store: MemoryStore) -> dict:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="tiberius")
     p.add_argument("--db", help="SQLite path (default: $TIBERIUS_DB or ~/.tiberius/memory.db)")
+    p.add_argument("--dream-db", help="dream mark store path (default: $TIBERIUS_DREAM_DB or $HERMES_HOME/dream.db)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("search", help="FTS5 + rerank keyword search")
@@ -335,7 +384,30 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("extract", help="regex-extract facts from a JSON message list on stdin")
     s.add_argument("--origin", default="cli", help="writer tag recorded on extracted rows (default: cli)")
 
+    # dream: the offline consolidation pass's mark queue (docs/dreaming.md).
+    # A dedicated file, never the memory store — see dream.py's header for why.
+    d = sub.add_parser("dream", help="dream mark queue: mark/list/done/prune/target (docs/dreaming.md)")
+    dsub = d.add_subparsers(dest="dream_op", required=True)
+    dm = dsub.add_parser("mark", help="record one mark (idempotent per source+session+event+turn)")
+    dm.add_argument("--source", required=True, help="writer (hermes | opencode)")
+    dm.add_argument("--session", required=True, help="session id the mark belongs to")
+    dm.add_argument("--event", required=True, help=f"event type: {' | '.join(EVENTS)}")
+    dm.add_argument("--turn", required=True, help="turn id (last transcript message id at mark time)")
+    dm.add_argument("--summary", required=True, help="one line: what failed and why")
+    dm.add_argument("--evidence", required=True, help="short transcript excerpt or tool-error text")
+    dm.add_argument("--fact-ids", default="", help="comma-separated fact ids involved (may be empty)")
+    dl = dsub.add_parser("list", help="list marks (default: pending only)")
+    dl.add_argument("--status", choices=["pending", "done"], default="pending")
+    dl.add_argument("--limit", type=int, default=100)
+    dsub.add_parser("done", help="mark one processed (atomic: only a pending mark can be done)").add_argument("mark_id", type=int)
+    dp = dsub.add_parser("prune", help="delete processed marks older than --days (default 14)")
+    dp.add_argument("--days", type=int, default=14)
+    dt = dsub.add_parser("target", help="focus set for the pass: drift + hygiene + contradict + stats, one bundle")
+    dt.add_argument("--project", help="project name for the drift side (the profile name; omit = no drift section)")
+
     a = p.parse_args(argv)
+    if a.cmd == "dream":
+        return _dream(a)
     if a.cmd in ("search", "brief", "reason", "contradict", "list"):
         a.top = max(1, a.top)  # SQLite LIMIT -1 means unlimited — a negative --top must not dump the store
     store = MemoryStore(db_path=_db_path(a))

@@ -1,13 +1,15 @@
 # Dreaming (offline memory consolidation)
 
-Status: **design complete** — spike 2026-11-06. Implementation: opencode
-mark + test pending (see Implementation table); docs, sweep prompt,
-bundled skill, and runtime wiring live on the tiberius profile.
+Status: **implementation complete** — spike 2026-11-06; dream CLI +
+DB-backed mark store landed 2026-11-09. See the Implementation table;
+runtime wiring lives on the tiberius profile.
 
 An offline LLM pass that replays session transcripts, checks stored facts
 against what actually happened, and repairs the store through the existing
-action surface. No new tables, no new schema: the dreamer is an agent that
-already has `fact_store`, `fact_feedback`, and `session_search` tools.
+action surface. No new tables in the memory store, no new schema there:
+the dreamer is an agent that already has `fact_store`, `fact_feedback`,
+and `session_search` tools; the mark queue is a dedicated SQLite file
+(default `$HERMES_HOME/dream.db`) managed by the CLI's `dream` verbs.
 
 ## Why
 
@@ -71,10 +73,10 @@ Event-driven first, sweep as fallback — mirrors the hippocampal model
 **Layer 1 — mark (in-session, sync, no LLM).** On a salient failure
 event — user correction, loop guardrail (`idempotent_no_progress`),
 repeated identical tool error, board `VERSION_CONFLICT` — the agent
-appends one JSON file to the dream queue
-`$HERMES_HOME/profiles/<profile>/dream_queue/` (processed files move to
-its `done/` subdir):
-session id, what failed, why, fact ids involved. Cost: one write.
+records one mark in the dream queue via `tiberius dream mark` (a
+dedicated SQLite file, default `$HERMES_HOME/dream.db`, 0600; processed
+marks flip to `status = done`): source, session id, event, what failed,
+why, the fact ids involved. Cost: one local write.
 Salience judged by the model at event time, where the cause is in
 context — fixed salience rules underperform, and event-time
 judgment beats nightly re-derivation from transcripts.
@@ -85,25 +87,26 @@ judgment beats nightly re-derivation from transcripts.
   transcript via `session_search`, repair via `fact_store` /
   `fact_feedback`, episodic lesson fact. Parent keeps working; the
   result re-enters later and gets folded in.
-- Opencode sessions and missed events: the nightly sweep processes the
-  queue and moves processed files to `dream_queue/done/`. The opencode
-  plugin's per-turn handler (on
+- Opencode sessions and missed events: the nightly sweep drains the
+  queue (`dream list --pending` → verify → `dream done` per mark). The
+  opencode plugin's per-turn handler (on
   `session.execution.succeeded` / `.interrupted`, where it already
   regex-extracts and sends skill feedback) is the event source there —
-  extension: write a mark file when the turn shows failure markers
-  (spec: Opencode mark triggers below).
+  extension: record a mark (a `dream mark` engine call) when the turn
+  shows failure markers (spec: Opencode mark triggers below).
 
 **Sweep (fallback).** Nightly cron job `tiberius-dream-sweep` (03:00,
-continuity on): process queued marks, then the standard pass
-(`contradict` / `drift` / `hygiene`). Morning report to chat, never
-into the store (no self-logging).
+continuity on): drain the queue (verify each pending mark, `dream done`
+per processed one), then the targeting pass (`dream target --project
+<profile>` → work the bundle), then `dream prune`. Morning report to
+chat, never into the store (no self-logging).
 
-**Phase 2 — targeting (no new code).** The focus set is composed from
-three existing actions: `drift` (`unbacked`), `hygiene` (low-trust),
-`contradict` (pairs), plus recall counts from `stats`. The dreamer runs
-all three each pass and concentrates on facts likely to have changed, not
-the whole store (consolidation cadence). A dedicated action
-only if composing the three becomes a bottleneck.
+**Phase 2 — targeting (no new primitives).** The focus set is composed
+from existing actions: `drift` (`unbacked`), `hygiene` (low-trust),
+`contradict` (pairs), plus `stats`. Landed as `dream target` — one CLI
+call that composes the bundle (no new retrieval primitives); the dreamer
+works the bundle each pass and concentrates on facts likely to have
+changed, not the whole store (consolidation cadence).
 
 **Phase 3 — cross-store reconciliation.** Shared store as ground truth;
 per-profile stores reconciled against it via `read_stores`. Dreaming is the
@@ -112,26 +115,59 @@ write side of the read-only federation shipped in v0.6.15.
 Corrections policy (from the spike): apply directly when a transcript is
 ground truth for the claim; report-only otherwise.
 
-## Queue file format
+## Mark store
 
-One JSON file per mark, named
-`<source>-<session_id>-<turn_id>.json`. Fields:
+One SQLite file per profile — `$HERMES_HOME/dream.db` by default (path
+resolution: `--dream-db` > `$TIBERIUS_DREAM_DB` > `$HERMES_HOME/dream.db`),
+created 0600 on the first mark and managed exclusively through the CLI's
+`dream` verbs — the queue's only write path. Where the marks live is a
+security decision, not an implementation detail:
 
-```json
-{
-  "ts": "2026-11-08T16:27:00Z",
-  "source": "hermes | opencode",
-  "session_id": "…",
-  "event": "user_correction | repeated_tool_error | loop_guard | version_conflict",
-  "summary": "one line: what failed and why",
-  "evidence": "short transcript excerpt or tool-error text",
-  "fact_ids": [115, 117]
-}
+- **Not the memory store.** The store DB is the `read_stores` federation
+  surface (one writer, many readers, shared across profiles), and a mark's
+  `evidence` field is a raw transcript excerpt — the most personal content
+  in the system. It does not belong in a file whose contract is to be
+  shared.
+- **Not loose files on disk.** A directory of memory-bearing JSON is an
+  unvalidated input channel to a write-capable LLM agent (a planted mark
+  is a prompt-injection vector into the dreamer), a disclosure surface
+  (default-umask readable), and a retention/permissions mess (a growing
+  set of files to get right). One 0600 file with a schema-validated write
+  path replaces all three.
+
+### CLI verbs
+
+| Verb | Contract |
+|---|---|
+| `dream mark --source S --session ID --event E --turn T --summary X --evidence Y [--fact-ids 1,2]` | record one mark. Idempotent per (source, session, event, turn); a re-mark upserts and re-opens a done mark. Field caps: summary 500, evidence 4000 |
+| `dream list [--status pending\|done] [--limit N]` | queue contents, oldest first (default: pending only) |
+| `dream done <mark_id>` | processed. Atomic: only a pending mark can be done |
+| `dream prune [--days 14]` | retention: delete done marks older than N days (pending is never pruned) |
+| `dream target [--project P]` | the pass's focus set as one bundle: `drift` (needs P — the profile name; omitted when absent) + `hygiene` + `contradict` + `stats` |
+
+### Schema
+
+```sql
+CREATE TABLE marks (
+  id INTEGER PRIMARY KEY,
+  ts TEXT NOT NULL,
+  source TEXT NOT NULL,              -- hermes | opencode (writer tag)
+  session_id TEXT NOT NULL,
+  event TEXT NOT NULL CHECK (event IN ('user_correction', 'repeated_tool_error', 'loop_guard', 'version_conflict')),
+  turn_id TEXT NOT NULL,
+  summary TEXT NOT NULL,             -- one line: what failed and why (<= 500)
+  evidence TEXT NOT NULL,            -- transcript excerpt / tool-error text (<= 4000)
+  fact_ids TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'done')),
+  done_at TEXT,
+  UNIQUE (source, session_id, event, turn_id)
+);
 ```
 
 `fact_ids` may be empty — the mark precedes fact identification; the
-dreamer resolves ids. Writes are idempotent: the same
-session + event + turn is never written twice.
+dreamer resolves ids. Idempotency is the UNIQUE key, not a convention:
+the same session + event + turn is one row, and a re-mark of a done row
+re-opens it (a re-fired event is a new work item).
 
 ## Opencode mark triggers (implementation spec)
 
@@ -148,45 +184,42 @@ transcript from `ctx.session.context` contains tool entries with
    (case-insensitive, word boundary).
 
 Dedupe: at most one mark per event type per session (same pattern as the
-existing `skillFeedbackSent` map). The write is a plain `fs.writeFile`,
-best-effort, never breaks the turn (same error handling as the engine
-calls). Queue dir from the plugin option (`dreamQueueDir`, where a
-`$HERMES_HOME` placeholder is expanded from the environment), default
-`$HERMES_HOME/dream_queue` — `$HERMES_HOME` is the active profile's home
-in this stack (the provider keeps its store at
-`$HERMES_HOME/tiberius_store.db`), so the queue sits beside the store
-inside the profile. Option unset and no `$HERMES_HOME`: the feature is
-inert (no marks). No engine call: the mark is a file, not a store op —
-the Python engine surface is unchanged.
+existing `skillFeedbackSent` map); the queue's UNIQUE key makes any
+re-mark idempotent. The mark is an engine call (`dream mark`), best-effort
+through the plugin's existing `runEngine` path, and never breaks the turn
+(a failed call leaves the event unmarked, so the next turn retries).
+Queue path from the plugin option (`dreamDb`, where a `$HERMES_HOME`
+placeholder is expanded from the environment); unset: the feature is inert
+(no marks).
 
-Test: one new case in `opencode/tests/index.test.ts` — synthetic
-transcript with two tool errors plus one correction message; expect the
-mark file exists with the right `source`/`event`, and a second turn with
-no new failures writes nothing (dedupe).
+Test: new cases in `opencode/tests/index.test.ts` — synthetic transcript
+with two tool errors plus one correction message; expect two `dream mark`
+engine calls with the right `--source`/`--event`/`--turn`/evidence, and a
+second turn with no new failures makes no mark calls (dedupe). Plus an
+inert test: the same salient transcript with `dreamDb` unset makes no
+`dream` calls at all.
 
 Implementation notes (landed with the mark): "in the turn" (the trigger
 scope) is the messages NEW to the handler pass — the per-turn handler
 re-fetches the full transcript every turn, so the turn delta is a
 per-session seen-id set (the extract-delta pattern); on a session's
 first pass (fresh plugin / hot reload) the whole history counts as the
-turn, bounded by the per-event dedupe. The mark filename is
-`opencode-<session_id>-<event>-<turn_id>.json` — the three-part name above
-would collide when BOTH event types mark in the same turn (the dedupe is
-per event type, not per turn); the JSON is the contract, the name is for
-humans and idempotency. `<turn_id>` is the last transcript message id at
-mark time (stable across a reload, so a re-mark after a lost dedupe map
-rewrites the same file). The queue's `done/` subdir is created on first
-write.
+turn, bounded by the per-event dedupe. `<turn_id>` (the queue's
+idempotency key) is the last transcript message id at mark time — stable
+across a reload, so a re-mark after a lost dedupe map upserts the same
+row. The plugin's own field caps (summary 200, evidence 1000) sit well
+inside the queue's write caps (500/4000).
 
 ## Per-profile enablement
 
-1. Queue dir: `mkdir -p $HERMES_HOME/profiles/<profile>/dream_queue/done`
-   (the skill creates it on first mark; only needed in advance for the
-   cron sweep).
-2. In-session behavior: the bundled skill `tiberius-dreaming` ships with
-   the plugin and is discovered automatically — zero steps for a fresh
-   install. Optional reinforcement: a one-line standing rule in the
-   profile's memory (tiberius runs both).
+1. Mark store: nothing to create — the engine creates
+   `$HERMES_HOME/dream.db` (0600) on the first mark. Opencode profiles:
+   set the plugin option `dreamDb` (e.g. `"$HERMES_HOME/dream.db"`);
+   unset = no marks.
+2. In-session behavior (hermes): the bundled skill `tiberius-dreaming`
+   ships with the plugin and is discovered automatically — zero steps for
+   a fresh install. Optional reinforcement: a one-line standing rule in
+   the profile's memory (tiberius runs both).
 3. Cron sweep from `dreams/sweep-prompt.md` (nightly 03:00, continuity
    on, deliver to the profile's bot chat) — opt-in; the plugin never
    schedules it.
@@ -199,8 +232,9 @@ write.
 | `dreams/sweep-prompt.md` (cron job body) | tiberius | done |
 | `skills/tiberius-dreaming/SKILL.md` (behavior delivery for new installs — plugin-bundled skill, same vehicle as `tiberius-usage`) | tiberius | done |
 | Opencode mark + test (`opencode/index.ts`, `opencode/tests/index.test.ts`) | opencode | done |
+| Dream CLI + mark store (`dream.py`, `cli.py` `dream` group, `tests/test_tiberius_dream.py`) — medium decision: dedicated 0600 SQLite file, not the memory store, not loose files (see Mark store) | opencode | done |
 | README bullet ("What's changed vs upstream") — must say opt-in and link `docs/dreaming.md` (new installs get the provider, not the behavior; the bullet is the only route to the enablement recipe) | tiberius | at merge |
-| Runtime wiring (cron job, queue dirs, standing rule) | tiberius | live on tiberius profile |
+| Runtime wiring (cron job from `dreams/sweep-prompt.md`, standing rule) | tiberius | live on tiberius profile |
 | Release: version bump (`plugin.yaml`, `pyproject.toml`, `opencode/package.json` + lock), doc Status → shipped, tag `vX.Y.Z` on the release commit | tiberius | post-merge |
 
 Explicitly out of scope: targeting-query code (composed from existing

@@ -7,34 +7,37 @@ description: "Use when a salient failure occurs in a tiberius-memory session (us
 
 Design: `docs/dreaming.md` in the tiberius package (or its repo). Facts
 are predictions; the transcript is the ground truth that verifies them.
+The mark queue is the engine's own file (`$HERMES_HOME/dream.db`),
+reached only through the `tiberius dream …` CLI verbs — no file juggling by you.
 
 ## On a salient failure (in-session)
 
-1. Write one JSON file:
-   `$HERMES_HOME/profiles/<profile>/dream_queue/<source>-<session_id>-<turn_id>.json`
-   (create the dir if missing). Fields per the "Queue file format"
-   section of `docs/dreaming.md`: `ts`, `source`, `session_id`, `event`,
-   `summary`, `evidence`, `fact_ids`. One file per session + event +
-   turn — never write the same mark twice.
-2. No LLM at mark time; one write. Cost is a file.
+1. Record one mark:
+   `tiberius dream mark --source hermes --session <session_id>
+   --event <type> --turn <turn_id> --summary "one line: what failed and
+   why" --evidence "short transcript excerpt" [--fact-ids 115,117]`.
+   Event types: `user_correction` | `repeated_tool_error` | `loop_guard`
+   | `version_conflict`. One mark per session + event + turn — a repeat
+   is an idempotent upsert (it re-opens a done mark).
+2. No LLM at mark time; one local write. Cost is one CLI call.
 3. Live session and the failure is serious: optionally spawn a dream
-   subagent (delegate_task) with the mark file plus the "Dream pass"
-   steps below.
+   subagent (delegate_task) with the mark (id, summary, evidence) plus
+   the "Dream pass" steps below.
 
 ## Dream pass (on demand or nightly)
 
-1. Drain the queue: read each mark in
-   `dream_queue/*.json`. Verify the claim against the transcript:
-   `source=hermes` → `session_search` (session id is in the file);
+1. Drain the queue: `tiberius dream list --status pending`. Verify each
+   mark's claim against the transcript:
+   `source=hermes` → `session_search` (session id is in the mark);
    `source=opencode` → the mark's `evidence` field IS the transcript (the
    plugin records the decisive lines) — trust it, check referenced
-   commits/branches via git if present. Repair via
+   commits/branches via git. Repair via
    `fact_store`: `update`/`supersede` to correct, `merge` to dedup,
-   `fact_feedback` to rate. Move processed files to `dream_queue/done/`
-   — including report-only ones, so nothing is re-attempted; prune
-   `done/` files older than 14 days.
-2. Standard pass: `fact_store` with `contradict`, `drift` (pass the
-   profile name as project; "no plan facts" = N/A), `hygiene`.
+   `fact_feedback` to rate. `tiberius dream done <id>` per processed
+   mark — including report-only ones, so nothing is re-attempted.
+2. Targeting: `tiberius dream target --project <profile>` — one bundle
+   (`drift` unbacked, `hygiene` low-trust/near-dupes, `contradict`
+   pairs, `stats`; "no plan facts" = N/A).
    Fix only what has transcript or hard evidence; everything else is
    report-only.
 3. Never duplicate facts already in the memory file or in skills.
