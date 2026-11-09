@@ -33,6 +33,15 @@
  *   skillsTop   per-turn skill search top-k (default 3, when skillDirs set)
  *   skillsFloor  session-start skill block top-N by trust (default 2, when
  *               skillDirs set)
+ *   dreamDb      dream-mark store path (docs/dreaming.md): the per-turn
+ *               handler records one mark per salient failure (two or more
+ *               failed tool calls in the turn, a user correction) in the
+ *               engine's dream queue — a dedicated SQLite file managed by the
+ *               CLI's `dream` verbs, never the memory store, never loose
+ *               files on disk — for the offline dream pass to drain. A
+ *               $HERMES_HOME placeholder in the path is expanded from the
+ *               environment (the provider's own path convention). Unset: no
+ *               marks (the feature is inert).
  *
  * What it does:
  *   - tools: memory_search / memory_brief / memory_drift / memory_probe /
@@ -56,6 +65,11 @@
  *     and, for skills loaded during the session (dedicated transcript skill
  *     messages for built-in loads; completed memory_skill_load tool parts),
  *     records `feedback helpful` once per skill — the learned-ranking signal
+ *   - event: on a completed turn, marks salient failures for the offline dream
+ *     pass (docs/dreaming.md): one mark per event type per session in the
+ *     engine's dream queue — two or more failed tool calls in the turn, a new
+ *     user message starting with a correction cue. An engine call
+ *     (`dream mark`), best-effort, never breaks the turn
  *
  * Memory must never break model dispatch — every engine call is caught and
  * swallowed. (Per-turn injection is the default, so memory added mid-session
@@ -76,6 +90,7 @@ type Options = {
   skillDirs?: string[];
   skillsTop?: number;
   skillsFloor?: number;
+  dreamDb?: string;
 };
 
 type EngineResult = { results?: { fact_id: number; content: string; category?: string; trust_score?: number; tags?: string }[]; [k: string]: unknown; error?: string };
@@ -290,6 +305,50 @@ export function skillLoadNames(msgs: unknown[]): string[] {
   return names;
 }
 
+// --- dream marks (docs/dreaming.md) -----------------------------------------
+// The offline dream pass consolidates salient failures against the transcript:
+// the per-turn handler records ONE mark per event type per session in the
+// engine's dream queue (a dedicated SQLite file the CLI's `dream` verbs
+// manage — not the memory store, not loose files on disk), drained by the
+// nightly sweep. Both opencode triggers are readable from the transcript the
+// handler already fetches; the mark is an engine call (`dream mark`) — the
+// same subprocess path as every other plugin I/O:
+//   repeated_tool_error — >= 2 failed tool calls in the turn that just
+//     completed (a single hiccup is noise; repetition is the pattern)
+//   user_correction — a NEW user message that STARTS with a correction cue
+
+// The correction cues (spec: "Opencode mark triggers"): the message must
+// start with one of them — case-insensitive, word boundary ("nope"/"not" are
+// not cues; "no, that's wrong" is; a cue mid-message is not a cue).
+const CORRECTION_CUES = /^\s*(no|stop|wrong|that's not|don't|never|instead)\b/i;
+
+export function correctionCue(text: string): string | undefined {
+  const m = CORRECTION_CUES.exec(text);
+  return m ? m[1].toLowerCase() : undefined;
+}
+
+// Failed tool calls anywhere in a transcript (the same message-part walk as
+// skillLoadNames): the tool name + the error text (ToolStateError.error).
+// Callers scope to the turn; this scans what it is given.
+export function failedToolParts(msgs: unknown[]): { name: string; error: string }[] {
+  const out: { name: string; error: string }[] = [];
+  for (const m of msgs) {
+    const msg = m as any;
+    if (!msg || typeof msg !== "object") continue;
+    const parts = Array.isArray(msg.content) ? msg.content : Array.isArray(msg.parts) ? msg.parts : undefined;
+    if (!Array.isArray(parts)) continue;
+    for (const p of parts) {
+      const part = p as any;
+      if (part?.type !== "tool" || part?.state?.status !== "error") continue;
+      out.push({
+        name: typeof part.name === "string" ? part.name : "tool",
+        error: typeof part.state.error === "string" ? part.state.error : "",
+      });
+    }
+  }
+  return out;
+}
+
 export default Plugin.define({
   id: "tiberius-memory",
   async setup(ctx) {
@@ -336,6 +395,29 @@ export default Plugin.define({
     // re-train trust. (Hot-reload loses this map and can re-send a session's
     // feedback once — bounded, and trust is clamped to [0, 1].)
     const skillFeedbackSent = new Map<string, Set<string>>();
+    // Dream marks (docs/dreaming.md): the mark store path — the option
+    // (a $HERMES_HOME placeholder expands from the environment, the
+    // provider's own path convention); unset = no marks (the feature is
+    // inert, like skillDirs). The engine owns the queue: a dedicated
+    // SQLite file (0600, schema-validated), never the memory store, never
+    // loose files on disk.
+    const dreamDb =
+      typeof opts.dreamDb === "string" && opts.dreamDb
+        ? process.env.HERMES_HOME
+          ? opts.dreamDb.replace(/\$\{?HERMES_HOME\}?/g, process.env.HERMES_HOME)
+          : opts.dreamDb
+        : undefined;
+    // Event types already marked per session — one mark per event type per
+    // session (the skillFeedbackSent pattern; hot-reload can re-mark once,
+    // bounded: the queue's UNIQUE(source, session, event, turn) key makes a
+    // re-mark after a lost map an idempotent upsert).
+    const dreamMarked = new Map<string, Set<string>>();
+    // Message ids already seen per session: the handler re-fetches the FULL
+    // transcript every turn, so "in the turn" (the spec's trigger scope) is
+    // the delta against what the previous pass saw (the extract-delta
+    // pattern). On a session's first pass (fresh plugin / hot reload) the
+    // whole history counts as the turn — bounded by the per-event dedupe.
+    const dreamSeenMsgs = new Map<string, Set<string>>();
 
     // --- tools ---------------------------------------------------------------
     ctx.tool.transform((e) => {
@@ -828,6 +910,81 @@ export default Plugin.define({
                 } catch { /* best-effort */ }
               }
             }
+          }
+          // 3) Dream marks (docs/dreaming.md): the salient failures of the turn
+          //    that just completed become one mark per event type per session
+          //    in the engine's dream queue, for the offline dream pass to
+          //    drain. An engine call (`dream mark`), best-effort, never
+          //    breaking the turn — a failed call leaves the event unmarked so
+          //    the next turn retries (the skillFeedback pattern). Gated on the
+          //    dreamDb option: unset means zero behavior change, like
+          //    skillDirs.
+          if (dreamDb) {
+            let marked = dreamMarked.get(sessionID);
+            if (!marked) {
+              marked = new Set<string>();
+              dreamMarked.set(sessionID, marked);
+            }
+            let seenMsgs = dreamSeenMsgs.get(sessionID);
+            if (!seenMsgs) {
+              seenMsgs = new Set<string>();
+              dreamSeenMsgs.set(sessionID, seenMsgs);
+            }
+            // "In the turn" (the spec's trigger scope): the messages new to
+            // this pass — the handler re-fetches the full transcript every
+            // turn, so the seen set IS the turn delta (the extract-delta
+            // pattern). A message without an id is always fresh (it can't be
+            // tracked); the per-event dedupe bounds any re-count.
+            const turnMsgs = raw.filter((m) => {
+              const id = (m as any)?.id;
+              return typeof id !== "string" || !seenMsgs.has(id);
+            });
+            // Turn id for the queue's idempotency key: the last transcript
+            // message id at mark time — stable across a hot reload, so a
+            // re-mark after a lost dedupe map upserts the same row.
+            const turnID = (() => {
+              const last = [...raw].reverse().find((m) => typeof (m as any)?.id === "string") as any;
+              return last ? last.id : `t${Date.now()}`;
+            })();
+            const markDream = async (event: string, summary: string, evidence: string) => {
+              await runEngine(engine, baseArgs, [
+                "dream", "mark",
+                "--source", "opencode",
+                "--session", sessionID,
+                "--event", event,
+                "--turn", turnID,
+                "--summary", summary,
+                "--evidence", evidence,
+                "--dream-db", dreamDb,
+              ], undefined, env);
+            };
+            // repeated_tool_error: >= 2 failed tool calls in the turn.
+            if (!marked.has("repeated_tool_error")) {
+              const failed = failedToolParts(turnMsgs);
+              if (failed.length >= 2) {
+                const names = [...new Set(failed.map((f) => f.name))].join(", ");
+                const summary = `repeated tool errors (${failed.length} failed calls: ${names})`.replace(/\s+/g, " ").slice(0, 200);
+                const evidence = failed.map((f) => `${f.name}: ${f.error}`).join("\n").slice(0, 1000);
+                await markDream("repeated_tool_error", summary, evidence);
+                // Mark only after a successful call: a failed call retries next turn.
+                marked.add("repeated_tool_error");
+              }
+            }
+            // user_correction: a NEW user message starting with a correction
+            // cue (the fresh user msgs, already computed for the extract).
+            if (!marked.has("user_correction")) {
+              const corr = fresh.find((m) => correctionCue(m.text as string));
+              if (corr) {
+                const text = corr.text as string;
+                const summary = `user correction: ${text.replace(/\s+/g, " ").trim()}`.slice(0, 200);
+                await markDream("user_correction", summary, text.slice(0, 1000));
+                marked.add("user_correction");
+              }
+            }
+            // Remember every id this pass saw, so the NEXT pass's turn delta is
+            // only what is new (after the checks: a message must still count
+            // as this turn's while it is being assessed).
+            for (const m of raw) if (typeof (m as any)?.id === "string") seenMsgs.add((m as any).id);
           }
         } catch { /* best-effort */ }
       }

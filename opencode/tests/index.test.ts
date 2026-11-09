@@ -21,6 +21,8 @@ import { test } from "node:test";
 import tiberiusPlugin, {
   SKILL_BODY_MAX,
   callEngine,
+  correctionCue,
+  failedToolParts,
   freshInjectionFacts,
   freshUserMsgs,
   messageText,
@@ -279,6 +281,43 @@ test("skillLoadNames reads both transcript skill-load signals; failed loads excl
   assert.deepEqual(skillLoadNames(msgs), ["alpha", "skl-solo", "beta", "gamma"]);
 });
 
+// --- dream marks: pure helpers (docs/dreaming.md) -----------------------------
+
+test("correctionCue matches message-initial correction cues only (case-insensitive, word boundary)", () => {
+  assert.equal(correctionCue("no, that's wrong"), "no");
+  assert.equal(correctionCue("STOP using that approach"), "stop");
+  assert.equal(correctionCue("That's not what I asked for"), "that's not");
+  assert.equal(correctionCue("don't cache this"), "don't");
+  assert.equal(correctionCue("Never do that again"), "never");
+  assert.equal(correctionCue("instead of that, use git"), "instead");
+  assert.equal(correctionCue("  no way"), "no"); // leading whitespace is fine
+  assert.equal(correctionCue("nope, never"), undefined); // "no" needs a word boundary
+  assert.equal(correctionCue("please don't forget to test"), undefined); // cue must start the message
+  assert.equal(correctionCue("not bad"), undefined); // "not" is not a cue on its own
+});
+
+test("failedToolParts collects error-status tool parts with their error text (both part shapes)", () => {
+  const msgs = [
+    {
+      type: "assistant",
+      id: "a1",
+      content: [
+        { type: "tool", name: "bash", state: { status: "error", error: "boom" } },
+        { type: "tool", name: "read", state: { status: "completed", output: "ok" } },
+        { type: "text", text: "x" },
+      ],
+    },
+    { type: "assistant", id: "a2", parts: [{ type: "tool", name: "bash", state: { status: "error" } }] },
+    { type: "user", id: "u1", text: "hello" },
+    null,
+    42,
+  ] as unknown[];
+  assert.deepEqual(failedToolParts(msgs), [
+    { name: "bash", error: "boom" },
+    { name: "bash", error: "" }, // no error text on the part — still counted
+  ]);
+});
+
 // --- skill catalog: setup() wiring (Phase 2) ---------------------------------
 // A fake Node engine (tests/fake-engine.mjs) stands in for
 // `python3 -m tiberius.cli`: same JSON contract, deterministic skill/fact
@@ -332,7 +371,6 @@ async function waitForLog(min: number): Promise<{ argv: string[] }[]> {
     await new Promise((r) => setTimeout(r, 25));
   }
 }
-
 interface CtxHandle {
   ctx: any;
   tools: any[];
@@ -895,6 +933,84 @@ test("session end: feedback helpful once per loaded skill (failed loads excluded
     const entries2 = await waitForLog(6);
     assert.deepEqual(entries2[5].argv, A("extract", "--origin", "opencode"));
     assert.ok(!entries2.slice(5).some((e) => e.argv[2] === "feedback" || e.argv[2] === "list"));
+  });
+});
+
+test("session end: dream marks — repeated tool errors + user correction, one per event type per session", async () => {
+  const dreamDb = join(tmp, "dream.db");
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE], dreamDb }, async (h) => {
+    // The spec's synthetic transcript: two tool errors plus one correction
+    // message. (docs/dreaming.md, "Opencode mark triggers" — Test.)
+    const transcript = [
+      { type: "user", id: "u1", text: "deploy the service to staging please" },
+      {
+        type: "assistant",
+        id: "a1",
+        content: [
+          { type: "tool", name: "bash", state: { status: "error", error: "sh: deploy.sh: Permission denied" } },
+          { type: "tool", name: "bash", state: { status: "error", error: "exit code 126: command not found" } },
+          { type: "text", text: "retrying with a different path" },
+        ],
+      },
+      { type: "user", id: "u2", text: "no, that's not right — use the release script" },
+    ];
+    h.setTranscript("ses1", transcript);
+    h.pushEvent({ id: "e1", created: 0, type: "session.execution.succeeded", durable: {}, data: { sessionID: "ses1" } });
+    // The mark is an engine call (`dream mark`): one extract + two marks,
+    // both event types in the same turn — turn id = the last transcript
+    // message id at mark time (u2), the queue's idempotency key.
+    const entries = await waitForLog(3);
+    const argOf = (argv: string[], flag: string) => argv[argv.indexOf(flag) + 1];
+    const marks = entries.filter((e) => e.argv[2] === "dream" && e.argv[3] === "mark");
+    assert.equal(marks.length, 2);
+    const byEvent = new Map(marks.map((m) => [argOf(m.argv, "--event"), m.argv]));
+    assert.deepEqual([...byEvent.keys()].sort(), ["repeated_tool_error", "user_correction"]);
+    const errMark = byEvent.get("repeated_tool_error")!;
+    assert.equal(argOf(errMark, "--source"), "opencode");
+    assert.equal(argOf(errMark, "--session"), "ses1");
+    assert.equal(argOf(errMark, "--turn"), "u2");
+    assert.equal(argOf(errMark, "--dream-db"), dreamDb);
+    assert.ok(argOf(errMark, "--summary").startsWith("repeated tool errors (2 failed calls: bash)"));
+    assert.ok(argOf(errMark, "--evidence").includes("bash: sh: deploy.sh: Permission denied"));
+    assert.ok(argOf(errMark, "--evidence").includes("bash: exit code 126: command not found"));
+    const corrMark = byEvent.get("user_correction")!;
+    assert.equal(argOf(corrMark, "--turn"), "u2");
+    assert.ok(argOf(corrMark, "--summary").startsWith("user correction: no, that's not right"));
+    assert.equal(argOf(corrMark, "--evidence"), "no, that's not right — use the release script");
+
+    // Second turn with no new failures: a COMPLETED tool and a clean user
+    // message — only the extract, no new marks (dedupe: both event types
+    // already marked; the turn delta carries no errors and no correction cue).
+    h.setTranscript("ses1", [
+      ...transcript,
+      { type: "assistant", id: "a2", content: [{ type: "tool", name: "bash", state: { status: "completed", output: "deployed" } }] },
+      { type: "user", id: "u3", text: "great, thanks — that worked" },
+    ]);
+    h.pushEvent({ id: "e2", created: 0, type: "session.execution.succeeded", durable: {}, data: { sessionID: "ses1" } });
+    const entries2 = await waitForLog(4);
+    assert.deepEqual(entries2[3].argv, A("extract", "--origin", "opencode"));
+    assert.equal(entries2.filter((e) => e.argv[2] === "dream").length, 2); // still exactly the two turn-1 marks
+  });
+});
+
+test("session end: dream marks inert when dreamDb unset (a salient failure writes nothing)", async () => {
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE] }, async (h) => {
+    h.setTranscript("ses1", [
+      { type: "user", id: "u1", text: "deploy the service to staging please" },
+      {
+        type: "assistant",
+        id: "a1",
+        content: [
+          { type: "tool", name: "bash", state: { status: "error", error: "boom one" } },
+          { type: "tool", name: "bash", state: { status: "error", error: "boom two" } },
+        ],
+      },
+      { type: "user", id: "u2", text: "no, that's not right" },
+    ]);
+    h.pushEvent({ id: "e1", created: 0, type: "session.execution.succeeded", durable: {}, data: { sessionID: "ses1" } });
+    const entries = await waitForLog(1); // the extract lands — step 1 done
+    await new Promise((r) => setTimeout(r, 150)); // let the handler finish (and not) mark
+    assert.equal(entries.filter((e) => e.argv[2] === "dream").length, 0);
   });
 });
 
