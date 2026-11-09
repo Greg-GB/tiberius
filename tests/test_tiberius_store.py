@@ -867,3 +867,76 @@ def test_pool_stats_gains_fallback_column_on_upgrade(tmp_path):
         assert store._conn.execute("SELECT fallback_searches FROM pool_stats ORDER BY day DESC").fetchone()[0] == 1
     finally:
         store.close()
+
+
+def test_query_miss_logged_on_zero_pool_only(tmp_path):
+    """docs/query-misses.md: a zero-pool search logs a miss row (normalized);
+    a hit search logs none."""
+    store = MemoryStore(str(tmp_path / "miss.db"))
+    try:
+        store.record_pool(0, query="How do I Deploy   the gateway?")
+        row = store._conn.execute("SELECT query, count FROM query_misses").fetchone()
+        assert row is not None, "zero-pool search logs a miss row"
+        assert (row["query"], row["count"]) == ("how do i deploy the gateway?", 1)
+        store.record_pool(3, query="How do I Deploy the gateway?")
+        assert store._conn.execute("SELECT COUNT(*) FROM query_misses").fetchone()[0] == 1, "hit search logs no miss row"
+    finally:
+        store.close()
+
+
+def test_query_miss_same_day_repeats_increment(tmp_path):
+    """docs/query-misses.md: same normalized query, same UTC day: count
+    increments in place, no new row (bounded by construction)."""
+    store = MemoryStore(str(tmp_path / "miss2.db"))
+    try:
+        store.record_pool(0, query="Deploy the  gateway")
+        store.record_pool(0, query="deploy   THE gateway")
+        rows = store._conn.execute("SELECT query, count FROM query_misses").fetchall()
+        assert len(rows) == 1, "case/whitespace-normalized repeats group into one row"
+        assert (rows[0]["query"], rows[0]["count"]) == ("deploy the gateway", 2)
+    finally:
+        store.close()
+
+
+def test_stats_misses_shape(tmp_path):
+    """docs/query-misses.md: stats['misses'] is top-N {query, count, last_day}
+    over the trailing 7 days; empty list when the table is empty."""
+    store = MemoryStore(str(tmp_path / "miss3.db"))
+    try:
+        assert store.stats()["misses"] == [], "empty store reports no misses"
+        store.record_pool(0, query="alpha query")
+        store.record_pool(0, query="alpha query")
+        store.record_pool(0, query="beta query")
+        misses = store.stats()["misses"]
+        assert [m["query"] for m in misses] == ["alpha query", "beta query"], "ordered by count desc"
+        assert misses[0]["count"] == 2 and misses[1]["count"] == 1
+        for m in misses:
+            assert set(m) == {"query", "count", "last_day"}
+    finally:
+        store.close()
+
+
+def test_query_miss_truncates_at_200_chars(tmp_path):
+    """docs/query-misses.md: query text is truncated at 200 chars before storage."""
+    store = MemoryStore(str(tmp_path / "miss4.db"))
+    try:
+        store.record_pool(0, query="x" * 250)
+        row = store._conn.execute("SELECT query FROM query_misses").fetchone()
+        assert row["query"] == "x" * 200, "stored query capped at 200 chars"
+    finally:
+        store.close()
+
+
+def test_query_miss_prune_30_days_on_write(tmp_path):
+    """docs/query-misses.md: a miss write prunes rows older than 30 days."""
+    import datetime as dt
+    store = MemoryStore(str(tmp_path / "miss5.db"))
+    try:
+        old_day = (dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=31)).strftime("%Y-%m-%d")
+        store._conn.execute("INSERT INTO query_misses (day, query) VALUES (?, 'old query')", (old_day,))
+        store._conn.commit()
+        store.record_pool(0, query="fresh query")
+        rows = {r["query"] for r in store._conn.execute("SELECT query FROM query_misses")}
+        assert rows == {"fresh query"}, "rows older than 30 days pruned by the write-path delete"
+    finally:
+        store.close()

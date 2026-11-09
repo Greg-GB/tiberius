@@ -79,10 +79,10 @@ facts themselves (the owner's own queries, same machine, same file).
 | Piece | Owner | State |
 |---|---|---|
 | `docs/query-misses.md` (this doc) | tiberius | done |
-| `query_misses` table + `record_pool(..., query)` in `store.py` | opencode | pending |
-| Query capture + pass in `retrieval.py` (`_search` / `_record_pool`) | opencode | pending |
-| `stats()` `misses` key in `store.py` | opencode | pending |
-| Tests (5 cases above, in `tests/test_tiberius_store.py`) | opencode | pending |
+| `query_misses` table + `record_pool(..., query)` in `store.py` | tiberius | done |
+| Query capture + pass in `retrieval.py` (`_search` / `_record_pool`) | tiberius | done |
+| `stats()` `misses` key in `store.py` | tiberius | done |
+| Tests (5 cases above, in `tests/test_tiberius_store.py`) | tiberius | done |
 | Sweep-prompt miss-report line | tiberius | at merge of this PR |
 
 Release folds into the next version bump (house style: version, tag,
