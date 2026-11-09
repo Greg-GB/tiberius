@@ -13,7 +13,7 @@
  * Run: npm test  (node --test with type stripping; Node >= 22.6)
  */
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,6 +21,8 @@ import { test } from "node:test";
 import tiberiusPlugin, {
   SKILL_BODY_MAX,
   callEngine,
+  correctionCue,
+  failedToolParts,
   freshInjectionFacts,
   freshUserMsgs,
   messageText,
@@ -279,6 +281,43 @@ test("skillLoadNames reads both transcript skill-load signals; failed loads excl
   assert.deepEqual(skillLoadNames(msgs), ["alpha", "skl-solo", "beta", "gamma"]);
 });
 
+// --- dream marks: pure helpers (docs/dreaming.md) -----------------------------
+
+test("correctionCue matches message-initial correction cues only (case-insensitive, word boundary)", () => {
+  assert.equal(correctionCue("no, that's wrong"), "no");
+  assert.equal(correctionCue("STOP using that approach"), "stop");
+  assert.equal(correctionCue("That's not what I asked for"), "that's not");
+  assert.equal(correctionCue("don't cache this"), "don't");
+  assert.equal(correctionCue("Never do that again"), "never");
+  assert.equal(correctionCue("instead of that, use git"), "instead");
+  assert.equal(correctionCue("  no way"), "no"); // leading whitespace is fine
+  assert.equal(correctionCue("nope, never"), undefined); // "no" needs a word boundary
+  assert.equal(correctionCue("please don't forget to test"), undefined); // cue must start the message
+  assert.equal(correctionCue("not bad"), undefined); // "not" is not a cue on its own
+});
+
+test("failedToolParts collects error-status tool parts with their error text (both part shapes)", () => {
+  const msgs = [
+    {
+      type: "assistant",
+      id: "a1",
+      content: [
+        { type: "tool", name: "bash", state: { status: "error", error: "boom" } },
+        { type: "tool", name: "read", state: { status: "completed", output: "ok" } },
+        { type: "text", text: "x" },
+      ],
+    },
+    { type: "assistant", id: "a2", parts: [{ type: "tool", name: "bash", state: { status: "error" } }] },
+    { type: "user", id: "u1", text: "hello" },
+    null,
+    42,
+  ] as unknown[];
+  assert.deepEqual(failedToolParts(msgs), [
+    { name: "bash", error: "boom" },
+    { name: "bash", error: "" }, // no error text on the part — still counted
+  ]);
+});
+
 // --- skill catalog: setup() wiring (Phase 2) ---------------------------------
 // A fake Node engine (tests/fake-engine.mjs) stands in for
 // `python3 -m tiberius.cli`: same JSON contract, deterministic skill/fact
@@ -328,6 +367,22 @@ async function waitForLog(min: number): Promise<{ argv: string[] }[]> {
     if (lines.length >= min) return lines;
     if (Date.now() > deadline) {
       throw new Error(`expected >= ${min} engine calls, got ${lines.length}: ${JSON.stringify(lines.map((l) => l.argv))}`);
+    }
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+// The dream mark is a FILE, not an engine call — wait on the queue dir
+// instead of the engine log (files in the queue root, not done/).
+async function waitForFiles(dir: string, min: number): Promise<string[]> {
+  const deadline = Date.now() + 5000;
+  for (;;) {
+    let files: string[] = [];
+    try {
+      files = readdirSync(dir, { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name).sort();
+    } catch { /* the queue dir is created on first write */ }
+    if (files.length >= min) return files;
+    if (Date.now() > deadline) {
+      throw new Error(`expected >= ${min} mark files in ${dir}, got: ${files.join(", ")}`);
     }
     await new Promise((r) => setTimeout(r, 25));
   }
@@ -895,6 +950,61 @@ test("session end: feedback helpful once per loaded skill (failed loads excluded
     const entries2 = await waitForLog(6);
     assert.deepEqual(entries2[5].argv, A("extract", "--origin", "opencode"));
     assert.ok(!entries2.slice(5).some((e) => e.argv[2] === "feedback" || e.argv[2] === "list"));
+  });
+});
+
+test("session end: dream marks — repeated tool errors + user correction, one per event type per session", async () => {
+  const queue = join(tmp, "dream-queue");
+  await withSetup({ db: DB, engine: ["node", FAKE_ENGINE], dreamQueueDir: queue }, async (h) => {
+    // The spec's synthetic transcript: two tool errors plus one correction
+    // message. (docs/dreaming.md, "Opencode mark triggers" — Test.)
+    const transcript = [
+      { type: "user", id: "u1", text: "deploy the service to staging please" },
+      {
+        type: "assistant",
+        id: "a1",
+        content: [
+          { type: "tool", name: "bash", state: { status: "error", error: "sh: deploy.sh: Permission denied" } },
+          { type: "tool", name: "bash", state: { status: "error", error: "exit code 126: command not found" } },
+          { type: "text", text: "retrying with a different path" },
+        ],
+      },
+      { type: "user", id: "u2", text: "no, that's not right — use the release script" },
+    ];
+    h.setTranscript("ses1", transcript);
+    h.pushEvent({ id: "e1", created: 0, type: "session.execution.succeeded", durable: {}, data: { sessionID: "ses1" } });
+    // Turn id = the last transcript message id at mark time (u2) — both event
+    // types mark in the same turn, so the event sits in the filename.
+    const files = await waitForFiles(queue, 2);
+    assert.deepEqual(files, ["opencode-ses1-repeated_tool_error-u2.json", "opencode-ses1-user_correction-u2.json"]);
+    assert.ok(existsSync(join(queue, "done"))); // the sweep's landing dir is created on first write
+    const errMark = JSON.parse(readFileSync(join(queue, "opencode-ses1-repeated_tool_error-u2.json"), "utf8"));
+    assert.equal(errMark.source, "opencode");
+    assert.equal(errMark.event, "repeated_tool_error");
+    assert.equal(errMark.session_id, "ses1");
+    assert.deepEqual(errMark.fact_ids, []);
+    assert.ok(errMark.summary.startsWith("repeated tool errors (2 failed calls: bash)"));
+    assert.ok(errMark.evidence.includes("bash: sh: deploy.sh: Permission denied"));
+    assert.ok(errMark.evidence.includes("bash: exit code 126: command not found"));
+    const corrMark = JSON.parse(readFileSync(join(queue, "opencode-ses1-user_correction-u2.json"), "utf8"));
+    assert.equal(corrMark.source, "opencode");
+    assert.equal(corrMark.event, "user_correction");
+    assert.ok(corrMark.summary.startsWith("user correction: no, that's not right"));
+    assert.equal(corrMark.evidence, "no, that's not right — use the release script");
+
+    // Second turn with no new failures: a COMPLETED tool and a clean user
+    // message — nothing new is written (dedupe: both event types already
+    // marked; the turn delta carries no errors and no correction cue).
+    h.setTranscript("ses1", [
+      ...transcript,
+      { type: "assistant", id: "a2", content: [{ type: "tool", name: "bash", state: { status: "completed", output: "deployed" } }] },
+      { type: "user", id: "u3", text: "great, thanks — that worked" },
+    ]);
+    h.pushEvent({ id: "e2", created: 0, type: "session.execution.succeeded", durable: {}, data: { sessionID: "ses1" } });
+    await waitForLog(2); // the extract for the new user message landed — step 1 done
+    await new Promise((r) => setTimeout(r, 150)); // let the handler finish (and not) write
+    const files2 = readdirSync(queue, { withFileTypes: true }).filter((e) => e.isFile()).map((e) => e.name).sort();
+    assert.deepEqual(files2, files); // still exactly the two turn-1 marks
   });
 });
 

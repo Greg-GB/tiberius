@@ -150,14 +150,33 @@ transcript from `ctx.session.context` contains tool entries with
 Dedupe: at most one mark per event type per session (same pattern as the
 existing `skillFeedbackSent` map). The write is a plain `fs.writeFile`,
 best-effort, never breaks the turn (same error handling as the engine
-calls). Queue dir from plugin options, default
-`$HERMES_HOME/profiles/<profile>/dream_queue/`. No engine call: the mark
-is a file, not a store op — the Python engine surface is unchanged.
+calls). Queue dir from the plugin option (`dreamQueueDir`, where a
+`$HERMES_HOME` placeholder is expanded from the environment), default
+`$HERMES_HOME/dream_queue` — `$HERMES_HOME` is the active profile's home
+in this stack (the provider keeps its store at
+`$HERMES_HOME/tiberius_store.db`), so the queue sits beside the store
+inside the profile. Option unset and no `$HERMES_HOME`: the feature is
+inert (no marks). No engine call: the mark is a file, not a store op —
+the Python engine surface is unchanged.
 
 Test: one new case in `opencode/tests/index.test.ts` — synthetic
 transcript with two tool errors plus one correction message; expect the
 mark file exists with the right `source`/`event`, and a second turn with
 no new failures writes nothing (dedupe).
+
+Implementation notes (landed with the mark): "in the turn" (the trigger
+scope) is the messages NEW to the handler pass — the per-turn handler
+re-fetches the full transcript every turn, so the turn delta is a
+per-session seen-id set (the extract-delta pattern); on a session's
+first pass (fresh plugin / hot reload) the whole history counts as the
+turn, bounded by the per-event dedupe. The mark filename is
+`opencode-<session_id>-<event>-<turn_id>.json` — the three-part name above
+would collide when BOTH event types mark in the same turn (the dedupe is
+per event type, not per turn); the JSON is the contract, the name is for
+humans and idempotency. `<turn_id>` is the last transcript message id at
+mark time (stable across a reload, so a re-mark after a lost dedupe map
+rewrites the same file). The queue's `done/` subdir is created on first
+write.
 
 ## Per-profile enablement
 
@@ -179,7 +198,7 @@ no new failures writes nothing (dedupe).
 | `docs/dreaming.md` (this doc) | tiberius | done |
 | `dreams/sweep-prompt.md` (cron job body) | tiberius | done |
 | `skills/tiberius-dreaming/SKILL.md` (behavior delivery for new installs — plugin-bundled skill, same vehicle as `tiberius-usage`) | tiberius | done |
-| Opencode mark + test (`opencode/index.ts`, `opencode/tests/index.test.ts`) | opencode | pending |
+| Opencode mark + test (`opencode/index.ts`, `opencode/tests/index.test.ts`) | opencode | done |
 | README bullet ("What's changed vs upstream") — must say opt-in and link `docs/dreaming.md` (new installs get the provider, not the behavior; the bullet is the only route to the enablement recipe) | tiberius | at merge |
 | Runtime wiring (cron job, queue dirs, standing rule) | tiberius | live on tiberius profile |
 | Release: version bump (`plugin.yaml`, `pyproject.toml`, `opencode/package.json` + lock), doc Status → shipped, tag `vX.Y.Z` on the release commit | tiberius | post-merge |
