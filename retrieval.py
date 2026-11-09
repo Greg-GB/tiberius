@@ -58,6 +58,7 @@ class FactRetriever:
         self._role_content = hrr.encode_atom(hrr.ROLE_CONTENT, self.hrr_dim) if self.hrr_weight > 0 else None
         self._last_pool = 0  # set by _search_impl before the _search wrapper records telemetry
         self._last_fallback = False  # set by the recall entry points (fallback-counter.md)
+        self._last_query = None  # set by the _search wrapper; zero-pool miss log (docs/query-misses.md)
 
     def _phases(self, blob: bytes):
         try:
@@ -212,15 +213,17 @@ class FactRetriever:
                                     categories=categories, exclude_category=exclude_category,
                                     origin=origin, exclude_origin=exclude_origin)
         if self.telemetry:
+            self._last_query = query
             self._record_pool()
         return results
 
     def _record_pool(self) -> None:
         """Write the most recent _search_impl pool size (final candidates, after the
-        prefix fallback, capped at its limit*3) to the daily telemetry row.
+        prefix fallback, capped at its limit*3) and the query to the daily telemetry
+        row; a zero-pool search also logs its miss row (docs/query-misses.md).
         Telemetry never fails recall: failures are swallowed, log-only."""
         try:
-            self.store.record_pool(self._last_pool, self._last_fallback)
+            self.store.record_pool(self._last_pool, self._last_fallback, self._last_query)
         except Exception:
             pass  # ponytail: no logger in the store layer; a swallowed telemetry write is the ceiling
 
