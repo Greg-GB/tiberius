@@ -13,6 +13,7 @@ AGENTS.md lists the hard invariants; this file explains them.
 | `retrieval.py` | `FactRetriever`: search (with `categories`/`exclude_category`/`origin` pool filters) / probe (single entity or N-entity union via `entities`) / related / reason / contradict; cross-store read-only merge for search/probe (`docs/cross-store.md`) | store, holographic |
 | `brief.py` | `brief()`: token-budgeted context pack — search ∪ probe, dedupe, tiered rank, budget fill; harness-free, wrapped by the CLI subcommand, the OpenCode tool, and the Hermes provider action | store, retrieval |
 | `drift.py` | `drift()`: two-sided plan/state pack — exact tag+entity plan query, recency-ranked state window, overlap-coefficient echo markers; harness-free, wrapped by the CLI subcommand, the OpenCode tool, and the Hermes provider action | store, retrieval, brief |
+| `dream.py` | `DreamQueue`: the dream mark store — a dedicated SQLite file (never the memory store, never loose files): idempotent mark upsert, pending/done lifecycle, SQL retention; `compose_target()` composes the pass's focus set from existing primitives (`docs/dreaming.md`) | stdlib only (drift/retrieval passed in, lazy import) |
 | `provider.py` | Hermes `MemoryProvider` adapter (in-process) | Hermes core + all of the above |
 | `cli.py` | Harness-agnostic JSON CLI (subprocess surface for any harness) | store, retrieval |
 | `opencode/index.ts` | OpenCode V2 plugin: subprocess wrapper around `cli.py` | node, `cli.py` |
@@ -244,8 +245,12 @@ user text into candidate facts — one match per category:
   `tool_error` (the agent sees a structured error, never a crash).
 
 **CLI (`cli.py`).** The subprocess surface. DB resolution: `--db` >
-`$TIBERIUS_DB` > `~/.tiberius/memory.db`. Commands: search/probe/show/entities/related/
-reason/contradict/add/add-batch/feedback/remove/update/supersede/merge/list/stats/checkpoint/extract/hygiene. Contract: **JSON on
+`$TIBERIUS_DB` > `~/.tiberius/memory.db`. Commands: search/brief/drift/probe/
+show/entities/related/reason/contradict/add/add-batch/feedback/remove/update/
+supersede/merge/list/stats/checkpoint/extract/hygiene/skill-sync/dream (the
+`dream` group: mark/list/done/prune/target — the mark queue lives in its own
+file, `--dream-db` > `$TIBERIUS_DREAM_DB` > `$HERMES_HOME/dream.db`,
+`docs/dreaming.md`). Contract: **JSON on
 stdout, exit 0**; errors (unknown fact_id, empty add content, bad `add-batch` item
 (indexed), bare `update`
 with no fields, bad `--since`, sqlite-level failures) are `{"error": ...}` +
@@ -362,7 +367,14 @@ the untested assumptions):
   message list is fed to the CLI on **stdin** (`extract` blocks on
   `stdin.read()` until it is written *and closed* — the event loop wedges
   otherwise). Re-running per completed turn is safe: `add_fact` dedupes on
-  UNIQUE(content).
+  UNIQUE(content). The same handler also
+  records dream marks (`dream mark` engine calls, opt-in via the `dreamDb`
+  option, `docs/dreaming.md`): one mark per salient-failure event type per
+  session (repeated tool errors, a new user correction), idempotent on the
+  queue's UNIQUE(source, session, event, turn) key; a failed call leaves the
+  event unmarked so the next turn retries. Unit-verified via the plugin
+  suite (asserts the `dream mark` argv); not yet live-smoked against a
+  running OpenCode.
 - `runEngine` is defensive: every call has a 30s timeout (a hung engine must
   never hang the model — the context hook awaits one before the session's
   first dispatch), CLI errors surface as structured `{"error": ...}` (the

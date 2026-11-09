@@ -109,6 +109,9 @@ Files:
   `brief` (the token-budgeted task context pack) — a CLI subcommand, the
   OpenCode `memory_brief` tool, and the Hermes provider's
   `fact_store(action='brief')` — one shared implementation (`docs/brief.md`).
+  The dream queue (`dream mark/list/done/prune/target`, `docs/dreaming.md`)
+  is a CLI-only surface on its own dedicated 0600 file — never the memory
+  store, never loose files.
 - **Skill catalog**: the harness's skills as a second memory corpus — `skill-sync`
   upserts each `SKILL.md` as a `skill`-category fact, both adapters inject a ranked
   skill block (trust floor at session start + per-turn search), and session-end usage
@@ -166,6 +169,16 @@ Files:
   a logged warning; read stores are never written and never receive telemetry
   — one writer, many readers. Opt-in per profile; unset is zero behavior
   change (`docs/cross-store.md`).
+- **Dreaming** (opt-in): offline memory consolidation — an offline LLM pass
+  verifies stored facts against session transcripts and repairs the store
+  through the existing action surface. Salient failures (user corrections,
+  repeated tool errors, loop guardrails, board version conflicts) are marked
+  in-session into a dedicated SQLite queue (`$HERMES_HOME/dream.db`, 0600 —
+  never the memory store, never loose files) via the CLI's `dream` verbs
+  (`mark` / `list` / `done` / `prune` / `target`); an opt-in nightly sweep
+  drains the queue and runs the targeting pass. No new tables in the memory
+  store, no new engine actions — the dreamer is the agent's own
+  `fact_store` surface (`docs/dreaming.md`).
 - **Quality gates**: the core test suite (runs anywhere — `python -m pytest -q`),
   the plugin unit tests, Hermes-provider tests (need a Hermes environment), and
   a 19-query golden recall eval (`eval/`) that any retrieval change must not
@@ -355,6 +368,7 @@ restart.
 | `skillDirs` | unset | directories of `<skill-name>/SKILL.md` subdirs — a skill catalog. When set: `skill-sync` at session start, a trust-floor skill block at session start, a per-turn ranked skill search, and two new tools (`memory_skill_search` / `memory_skill_load`). Unset: zero behavior change (no skill calls, blocks, or tools) |
 | `skillsTop` | `3` (when `skillDirs` set) | per-turn skill search top-k (new skills only — deduped per session, shared with the floor) |
 | `skillsFloor` | `2` (when `skillDirs` set) | session-start skill block: top-N catalog skills by trust |
+| `dreamDb` | unset | dream mark store path (a `$HERMES_HOME` placeholder expands from the environment; the engine's default is `$HERMES_HOME/dream.db`) — when set: the per-turn handler records salient failures (repeated tool errors, user corrections) as `dream mark` engine calls (`docs/dreaming.md`). Unset: zero behavior change (no marks) |
 
 ### What the agent gets
 
@@ -463,6 +477,11 @@ python3 -m tiberius.cli --db PATH checkpoint show <session>
 python3 -m tiberius.cli --db PATH checkpoint clear <session>
 python3 -m tiberius.cli --db PATH skill-sync --dir DIR [--dir DIR ...] [--prune]
 echo '[{"role":"user","content":"..."}]' | python3 -m tiberius.cli --db PATH extract
+python3 -m tiberius.cli dream mark --source hermes --session ID --event TYPE --turn TID --summary "..." --evidence "..." [--fact-ids 1,2]
+python3 -m tiberius.cli dream list [--status pending|done] [--limit N]
+python3 -m tiberius.cli dream done <mark_id>
+python3 -m tiberius.cli dream prune [--days 14]
+python3 -m tiberius.cli dream target [--project PROFILE]
 ```
 
 DB path: `--db` > `$TIBERIUS_DB` > `~/.tiberius/memory.db`. All output is JSON.

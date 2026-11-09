@@ -1,8 +1,9 @@
 # Dreaming (offline memory consolidation)
 
-Status: **implementation complete** — spike 2026-11-06; dream CLI +
-DB-backed mark store landed 2026-11-09. See the Implementation table;
-runtime wiring lives on the tiberius profile.
+Status: **shipped — v0.6.16 (2026-11-09)** — spike 2026-11-06; dream CLI +
+DB-backed mark store landed 2026-11-09 (PR #74, merged as 5d00422). See the
+Implementation table; runtime wiring (the hermes cutover) lives on the
+tiberius profile.
 
 An offline LLM pass that replays session transcripts, checks stored facts
 against what actually happened, and repairs the store through the existing
