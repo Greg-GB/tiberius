@@ -2,7 +2,7 @@
 resolution, trust scoring, and HRR-based compositional retrieval. Original plugin by dusterbloom (PR #2351).
 Config in $HERMES_HOME/config.yaml under plugins.tiberius: db_path ($HERMES_HOME/tiberius_store.db),
 auto_extract (false), default_trust (0.5), min_trust_threshold (0.3), temporal_decay_half_life (0),
-hrr_dim (1024), hrr_weight (0.3)."""
+hrr_dim (1024), hrr_weight (0.3), read_stores ([] — read-only cross-store recall)."""
 
 from __future__ import annotations
 

@@ -1,7 +1,7 @@
 # Zero-pool query log (miss telemetry)
 
-Status: **design complete** — 2026-11-08. Implementation pending (see
-Implementation table). One standalone doc per branch (no roadmap index).
+Status: **shipped** — v0.6.16 (2026-11-09, `78741e4`). One standalone doc per
+branch (no roadmap index).
 
 ## Problem
 
@@ -74,7 +74,7 @@ facts themselves (the owner's own queries, same machine, same file).
 4. A query > 200 chars is truncated before storage.
 5. Rows older than 30 days are deleted by the write-path prune.
 
-## Implementation (this PR)
+## Implementation (PR #73)
 
 | Piece | Owner | State |
 |---|---|---|
@@ -83,7 +83,6 @@ facts themselves (the owner's own queries, same machine, same file).
 | Query capture + pass in `retrieval.py` (`_search` / `_record_pool`) | tiberius | done |
 | `stats()` `misses` key in `store.py` | tiberius | done |
 | Tests (5 cases above, in `tests/test_tiberius_store.py`) | tiberius | done |
-| Sweep-prompt miss-report line | tiberius | at merge of this PR |
+| Sweep-prompt miss-report line | tiberius | done (docs follow-up) |
 
-Release folds into the next version bump (house style: version, tag,
-Status → shipped on release).
+Shipped in v0.6.16.

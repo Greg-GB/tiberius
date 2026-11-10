@@ -153,6 +153,11 @@ Files:
   numpy loss shows up in telemetry instead of hiding inside the pool numbers.
   No query text stored; add-time duplicate detection and the hygiene scan
   don't count (`docs/pool-counters.md`, `docs/fallback-counter.md`).
+- **Miss log**: zero-pool searches also record the query text itself
+  (`query_misses` — one row per UTC day + query, 30-day retention pruned at
+  write time). The store's cheapest "what should I remember next" demand
+  signal; `stats` reports it under `misses` (`docs/query-misses.md`). Local
+  like everything else — nothing ever leaves the machine.
 - **Episodic decisions**: a convention, not an engine. Decisions and dated
   events are stored with category `episodic` and the content shape
   `YYYY-MM-DD: <decision> — <alternatives> — <reason>` (one line; the date

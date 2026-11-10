@@ -28,7 +28,9 @@ reached only through the `tiberius dream …` verbs):
    report-only ones, so nothing is re-attempted nightly.
 2. Targeting: `tiberius dream target --project <profile>` — one bundle
    (`drift` unbacked claims, `hygiene` low-trust/near-dupes,
-   `contradict` pairs, `stats`). "No plan facts" for the project is a
+   `contradict` pairs, `stats`). `stats` `misses` is the demand signal —
+   when non-empty, name the top missed queries in the report
+   (`docs/query-misses.md`). "No plan facts" for the project is a
    valid N/A (note it, move on). Fix only what has transcript or hard
    evidence; everything else is report-only.
 3. Never duplicate facts that already live in the memory file or in
